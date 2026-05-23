@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "YT Studio Ad Slot Optimizer",
+  "name": "Mid-Roll Manager",
   "version": "1.0.0",
-  "description": "Automatically clean up redundant manual ad breaks in YouTube Studio's monetization editor.",
+  "description": "Bulk insert and clean up mid-roll ad slots in the Studio monetization editor.",
   "permissions": ["activeTab"],
   "host_permissions": ["https://studio.youtube.com/*"],
   "action": {

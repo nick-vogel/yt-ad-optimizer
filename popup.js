@@ -34,7 +34,7 @@
 
   // ─── Status & Logging ───────────────────────────────────────
 
-  function setStatus(ready, text, durationSec) {
+  function setStatus(ready, text) {
     isReady = ready;
     statusDot.className = ready ? 'ready' : 'not-ready';
     statusText.textContent = text || (ready ? 'Ready' : 'Not ready');
@@ -100,7 +100,7 @@
             setStatus(false, 'Communication error');
             return;
           }
-          setStatus(res && res.ready, res ? res.reason : 'Unknown state', res ? res.durationSec : 0);
+          setStatus(res && res.ready, res ? res.reason : 'Unknown state');
         });
       });
     });
@@ -108,7 +108,7 @@
 
   chrome.runtime.onMessage.addListener(function (msg) {
     if (msg.type === 'status') {
-      setStatus(msg.ready, msg.info, msg.durationSec);
+      setStatus(msg.ready, msg.info);
     }
     if (msg.type === 'log') {
       appendLog(msg.text, msg.level);
@@ -136,7 +136,8 @@
 
     chrome.tabs.sendMessage(activeTabId, { type: 'run', config: config }, function (response) {
       if (chrome.runtime.lastError || !response || !response.started) {
-        appendLog('Failed to start: ' + (response ? response.reason : chrome.runtime.lastError.message), 'error');
+        var errMsg = response ? response.reason : (chrome.runtime.lastError ? chrome.runtime.lastError.message : 'no response');
+        appendLog('Failed to start: ' + errMsg, 'error');
         setButtonsRunning(false);
       }
     });
@@ -152,15 +153,16 @@
 
     var config = {
       durationSec: 0,
-      intervalSec: parseInt(insertIntervalInput.value, 10) || 60,
+      intervalSec: Math.max(parseInt(insertIntervalInput.value, 10) || 60, 1),
       startSec: parseInt(insertStartInput.value, 10) || 60,
       dryRun: insertDryRunCb.checked,
-      speedMs: parseInt(insertSpeedInput.value, 10) || 250,
+      speedMs: parseInt(insertSpeedInput.value, 10) || 50,
     };
 
     chrome.tabs.sendMessage(activeTabId, { type: 'insert', config: config }, function (response) {
       if (chrome.runtime.lastError || !response || !response.started) {
-        appendLog('Failed to start: ' + (response ? response.reason : chrome.runtime.lastError.message), 'error');
+        var errMsg = response ? response.reason : (chrome.runtime.lastError ? chrome.runtime.lastError.message : 'no response');
+        appendLog('Failed to start: ' + errMsg, 'error');
         setButtonsRunning(false);
       }
     });

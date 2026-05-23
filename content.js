@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var PREFIX = '[YTAdOpt]';
+  var PREFIX = '[MidRollMgr]';
   var running = false;
 
   // ─── Utilities ───────────────────────────────────────────────
@@ -133,7 +133,6 @@
     if (!panel) { log('Panel not found', 'error'); return []; }
 
     var rows = panel.querySelectorAll(SEL.row);
-    var markers = document.querySelectorAll(SEL.marker);
     var result = [];
 
     for (var i = 0; i < rows.length; i++) {
@@ -157,17 +156,9 @@
         row.classList.contains('is-warning') ||
         row.hasAttribute('is-warning');
 
-      var markerEl = i < markers.length ? markers[i] : null;
-      var markerWarning = markerEl && (
-        markerEl.hasAttribute('is-warning') ||
-        markerEl.classList.contains('is-warning')
-      );
-      if (markerWarning) isWarning = true;
-
       result.push({
         index: i,
         rowEl: row,
-        markerEl: markerEl,
         type: type,
         timeSec: timeSec,
         tsDisplay: tsValue,
@@ -322,10 +313,10 @@
 
   async function runOptimizer(config) {
     log('=== Starting optimizer ===');
-    log('Config: interval=' + config.intervalSec + 's, dryRun=' + config.dryRun + ', rerun=' + config.rerunAfterSave);
+    log('Config: interval=' + config.intervalSec + 's, dryRun=' + config.dryRun + ', speed=' + config.speedMs + 'ms');
 
     try {
-      await runOptimizerInternal(config, 0);
+      await runOptimizerInternal(config);
     } catch (err) {
       log('Unexpected error: ' + err.message, 'error');
     }
@@ -345,26 +336,6 @@
       if (!isNaN(t)) times.add(Math.round(t));
     }
     return times;
-  }
-
-  function getVideoDurationFromRows() {
-    var panel = document.querySelector(SEL.panel);
-    if (!panel) return 0;
-    var inputs = panel.querySelectorAll(SEL.row + ' ' + SEL.rowTimestampInput);
-    var max = 0;
-    for (var i = 0; i < inputs.length; i++) {
-      var t = parseFramestamp(inputs[i].value);
-      if (!isNaN(t) && t > max) max = t;
-    }
-    return max;
-  }
-
-  function secsToDigits(sec) {
-    var m = Math.floor(sec / 60);
-    var s = Math.floor(sec % 60);
-    var mm = m < 10 ? '0' + m : '' + m;
-    var ss = s < 10 ? '0' + s : '' + s;
-    return mm + ss + '00';
   }
 
   function seekPlayhead(sec) {
