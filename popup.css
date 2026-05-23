@@ -1,0 +1,249 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  width: 320px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  background: #1f1f1f;
+  color: #e8e8e8;
+  padding: 16px;
+}
+
+h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+#status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 8px 10px;
+  background: #2a2a2a;
+  border-radius: 6px;
+}
+
+#status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #666;
+  flex-shrink: 0;
+}
+
+#status-dot.ready {
+  background: #2ea043;
+}
+
+#status-dot.checking {
+  background: #d29922;
+}
+
+#status-dot.not-ready {
+  background: #da3633;
+}
+
+#status-text {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.control-group {
+  margin-bottom: 10px;
+}
+
+.control-group label {
+  display: block;
+  font-size: 12px;
+  color: #ccc;
+  margin-bottom: 4px;
+  cursor: pointer;
+}
+
+.control-group input[type='text'],
+.control-group input[type='number'] {
+  width: 100%;
+  padding: 6px 8px;
+  background: #333;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #e8e8e8;
+  font-size: 13px;
+}
+
+.control-group input[type='text']:focus,
+.control-group input[type='number']:focus {
+  outline: none;
+  border-color: #ff0000;
+}
+
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.checkbox-group input[type='checkbox'] {
+  accent-color: #ff0000;
+}
+
+.checkbox-group label {
+  font-size: 12px;
+  color: #ccc;
+  cursor: pointer;
+  margin-bottom: 0;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 12px;
+  background: #2a2a2a;
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.tab {
+  flex: 1;
+  padding: 6px 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #888;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tab.active {
+  background: #444;
+  color: #e8e8e8;
+}
+
+.tab:hover:not(.active) {
+  color: #bbb;
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+#run-btn,
+#insert-btn {
+  width: 100%;
+  padding: 10px;
+  background: #ff0000;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 6px;
+  margin-bottom: 12px;
+  transition: opacity 0.15s;
+}
+
+#run-btn:hover:not(:disabled),
+#insert-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+#run-btn:disabled,
+#insert-btn:disabled {
+  background: #555;
+  color: #888;
+  cursor: not-allowed;
+}
+
+.speed-hint {
+  font-size: 11px;
+  color: #aaa;
+  margin-top: 8px;
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+#done-btn {
+  width: 100%;
+  padding: 8px;
+  background: transparent;
+  color: #888;
+  border: 1px solid #444;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  margin-top: 8px;
+  transition: all 0.15s;
+}
+
+#done-btn:hover {
+  color: #e8e8e8;
+  border-color: #666;
+}
+
+#summary {
+  font-size: 12px;
+  color: #aaa;
+  margin-bottom: 8px;
+  display: none;
+}
+
+#log-area {
+  max-height: 250px;
+  overflow-y: auto;
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+#log-area:empty::before {
+  content: 'Logs will appear here...';
+  color: #555;
+}
+
+.log-entry {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-entry.warn {
+  color: #d29922;
+}
+
+.log-entry.error {
+  color: #f85149;
+}
+
+.log-entry.info {
+  color: #c9d1d9;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1f1f1f;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 3px;
+}

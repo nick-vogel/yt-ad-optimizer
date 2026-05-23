@@ -1,0 +1,15 @@
+window.SEL = {
+  timeline: 'ytve-ad-breaks-editor-timeline#AD_BREAKS',
+  decorations: '#decorations',
+  marker: 'ytve-ad-breaks-marker',
+  adBreaksRow: '#ad-breaks-row',
+  panel: 'ytve-ad-breaks-editor-options-panel',
+  row: '.ad-break-row',
+  rowLabel: '.ad-break-label',
+  rowTimestampInput: 'ytve-formatted-input input',
+  rowDeleteBtn: 'ytcp-icon-button.delete-button',
+  rowQualityContainer: '.manual-midroll-quality-container',
+  playheadLabel: 'ytve-playhead#playhead #label',
+  insertBtn: '[test-id="insert-ad-slot"]',
+  timelineMarkers: 'ytve-timeline-markers',
+};
