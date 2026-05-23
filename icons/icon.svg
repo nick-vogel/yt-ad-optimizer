@@ -1,4 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="28" ry="28" fill="#e8e8e8"/>
-  <text x="64" y="96" font-family="Arial, Helvetica, sans-serif" font-size="90" font-weight="bold" fill="#0a9178" text-anchor="middle">$</text>
+  <rect width="128" height="128" rx="24" ry="24" fill="#1a1a1a"/>
+  <!-- Timeline bar -->
+  <rect x="16" y="60" width="96" height="5" rx="2.5" fill="#e0e0e0"/>
+  <!-- Tick 1 -->
+  <rect x="28" y="38" width="5" height="49" rx="2.5" fill="#e0e0e0"/>
+  <!-- Tick 2 -->
+  <rect x="48" y="38" width="5" height="49" rx="2.5" fill="#e0e0e0"/>
+  <!-- Tick 3 -->
+  <rect x="68" y="38" width="5" height="49" rx="2.5" fill="#e0e0e0"/>
+  <!-- Tick 4 (removed) -->
+  <rect x="90" y="38" width="5" height="49" rx="2.5" fill="#e0e0e0" opacity="0.4"/>
+  <!-- Red slash over tick 4 -->
+  <line x1="82" y1="34" x2="103" y2="91" stroke="#e34040" stroke-width="5" stroke-linecap="round"/>
 </svg>
