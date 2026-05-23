@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var PREFIX = '[YTAdOpt]';
+  var PREFIX = '[MidRollMgr]';
   var running = false;
 
   // ─── Utilities ───────────────────────────────────────────────

@@ -1,6 +1,6 @@
-# YT Studio Ad Slot Optimizer
+# Mid-Roll Manager
 
-Chrome extension that automates cleanup of manually-placed mid-roll ad slots in YouTube Studio's monetization editor. It removes warning-flagged ad slots and manual slots that are too close together, while leaving automatic ad slots untouched.
+Chrome extension for bulk-inserting and cleaning up mid-roll ad slots in the Studio monetization editor. Insert ad slots at regular intervals, then clean up redundant or too-close placements — all from a simple popup UI.
 
 ## Installation
 
@@ -12,36 +12,65 @@ Chrome extension that automates cleanup of manually-placed mid-roll ad slots in 
 
 ## Usage
 
-1. Open YouTube Studio and navigate to a video's **Monetization > Ads** page
+1. Open the Studio monetization editor for any video (**Monetization > Ads**)
 2. Click the extension icon in your toolbar
-3. Configure:
-   - **Min seconds between manual ads** — manual ad slots closer together than this are removed (default: 60s)
-   - **Dry run** — preview what would be deleted without actually deleting
-   - **Re-run after save** — automatically save and re-scan up to 3 times until no warnings remain
-4. Click **Run Optimizer**
-5. Review the log output for details on each marker's classification and fate
+
+### Insert Mode
+
+- **Place an ad every N seconds** — interval between inserted ad slots (default: 60s)
+- **Start at (seconds)** — where to begin placing ads (default: 60s)
+- **Dry run** — preview planned placements without inserting
+- Click **Insert Ad Slots** to place them
+
+### Cleanup Mode
+
+- **Min seconds between ads** — manual slots closer than this are removed; automatic slots are always kept but count toward spacing
+- **Dry run** — preview what would be deleted
+- Click **Run Cleanup** to remove redundant slots
+
+### Speed Control
+
+Both modes have a configurable speed (ms) setting. Default is 50ms per operation. Increase if your browser lags or placements are missed.
 
 ## How It Works
 
-1. **Read** — scans all ad break markers on the timeline
-2. **Classify** — clicks each marker to determine if it's Manual or Automatic and reads its exact timestamp
-3. **Filter** — keeps automatic slots (they also reset the spacing window), removes warning slots, removes manual slots too close to the last kept slot
-4. **Delete** — removes filtered markers in reverse order to avoid DOM position shifts
-5. **Save & Re-run** — optionally saves and repeats until clean
+### Insert
+
+1. Seeks the video playhead to each target timestamp
+2. Clicks "Insert ad slot" to create a slot at that position
+3. Skips positions where ad slots already exist
+
+### Cleanup
+
+1. Reads all ad break rows from the panel (type, timestamp, warning status)
+2. Filters: keeps automatic slots, removes warnings, removes manual slots too close to the nearest kept slot
+3. Deletes in reverse chronological order to avoid DOM position shifts
+
+## Permissions
+
+This extension requests minimal permissions:
+
+| Permission | Why |
+|---|---|
+| `activeTab` | Interact with the current tab when you click the extension icon |
+| `host_permissions: studio.youtube.com` | Content script must run on the Studio monetization editor |
+
+No data is collected or transmitted. See [PRIVACY.md](PRIVACY.md) for details.
 
 ## Updating Selectors
 
-YouTube Studio's DOM structure may change over time. All CSS selectors are centralized in `selectors.js`. If the extension stops working after a YouTube update:
+The Studio DOM structure may change over time. All CSS selectors are centralized in `selectors.js`. If the extension stops working:
 
-1. Open YouTube Studio's monetization editor
+1. Open the Studio monetization editor
 2. Use Chrome DevTools to inspect the relevant elements
 3. Update the selectors in `selectors.js`
 4. Reload the extension in `chrome://extensions`
 
 ## Chrome Web Store
 
-To publish to the Chrome Web Store:
+To publish:
 
-1. Replace placeholder icons in `icons/` with proper 16x16, 48x48, and 128x128 PNG icons
-2. Zip the extension directory
-3. Upload at the [Chrome Developer Dashboard](https://chrome.google.com/webstore/devconsole)
+1. Zip the extension directory (excluding `debug-selectors.js`, `.git/`, `.idea/`)
+2. Upload at the [Chrome Developer Dashboard](https://chrome.google.com/webstore/devconsole)
+3. Provide the [PRIVACY.md](PRIVACY.md) content as the privacy policy URL or inline text
+4. Use the permissions justification table above when prompted
