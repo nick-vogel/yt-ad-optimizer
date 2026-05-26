@@ -71,11 +71,13 @@
     }
     var rows = panel.querySelectorAll(SEL.row);
     var dur = getVideoDurationSec();
-    var durStr = dur > 0 ? ', ' + formatTime(dur) + ' long' : '';
+    if (!(dur > 0)) {
+      return { ready: false, reason: 'Video still processing', durationSec: 0 };
+    }
     var contextStr = onMonetization ? '' : ' — upload dialog';
     return {
       ready: true,
-      reason: 'Ready (' + rows.length + ' ad slots' + durStr + ')' + contextStr,
+      reason: 'Ready (' + rows.length + ' ad slots, ' + formatTime(dur) + ' long)' + contextStr,
       durationSec: dur,
     };
   }
