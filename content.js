@@ -37,6 +37,9 @@
   function getVideoDurationSec() {
     var fi = document.querySelector('ytve-framestamp-input');
     var ms = fi ? parseInt(fi.getAttribute('data-duration-ms'), 10) : 0;
+    if (!ms) {
+      ms = parseInt(document.documentElement.getAttribute('data-ytadopt-duration-ms'), 10) || 0;
+    }
     return (ms || 0) / 1000;
   }
 
@@ -61,13 +64,25 @@
   }
 
   function checkReadiness() {
-    if (!isOnMonetizationPage()) return { ready: false, reason: 'Not on monetization page' };
     var panel = document.querySelector(SEL.panel);
-    if (!panel) return { ready: false, reason: 'Options panel not found' };
+    var onMonetization = isOnMonetizationPage();
+    if (!panel) {
+      return {
+        ready: false,
+        reason: onMonetization ? 'Options panel not found' : 'Open the mid-roll ad slots editor',
+      };
+    }
     var rows = panel.querySelectorAll(SEL.row);
     var dur = getVideoDurationSec();
-    var durStr = dur > 0 ? ', ' + formatTime(dur) + ' long' : '';
-    return { ready: true, reason: 'Ready (' + rows.length + ' ad slots' + durStr + ')', durationSec: dur };
+    if (!(dur > 0)) {
+      return { ready: false, reason: 'Video still processing', durationSec: 0 };
+    }
+    var contextStr = onMonetization ? '' : ' — upload dialog';
+    return {
+      ready: true,
+      reason: 'Ready (' + rows.length + ' ad slots, ' + formatTime(dur) + ' long)' + contextStr,
+      durationSec: dur,
+    };
   }
 
   var readinessDebounce = null;

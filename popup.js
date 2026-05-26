@@ -130,7 +130,7 @@
 
     var config = {
       intervalSec: parseInt(intervalInput.value, 10) || 60,
-      dryRun: dryRunCb.checked,
+      dryRun: dryRunCb ? dryRunCb.checked : false,
       speedMs: parseInt(cleanupSpeedInput.value, 10) || 150,
     };
 
@@ -155,7 +155,7 @@
       durationSec: 0,
       intervalSec: Math.max(parseInt(insertIntervalInput.value, 10) || 60, 1),
       startSec: parseInt(insertStartInput.value, 10) || 60,
-      dryRun: insertDryRunCb.checked,
+      dryRun: insertDryRunCb ? insertDryRunCb.checked : false,
       speedMs: parseInt(insertSpeedInput.value, 10) || 50,
     };
 
