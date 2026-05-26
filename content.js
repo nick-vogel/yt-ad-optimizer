@@ -37,6 +37,9 @@
   function getVideoDurationSec() {
     var fi = document.querySelector('ytve-framestamp-input');
     var ms = fi ? parseInt(fi.getAttribute('data-duration-ms'), 10) : 0;
+    if (!ms) {
+      ms = parseInt(document.documentElement.getAttribute('data-ytadopt-duration-ms'), 10) || 0;
+    }
     return (ms || 0) / 1000;
   }
 
