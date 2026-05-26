@@ -5,6 +5,12 @@
   "description": "Bulk insert and clean up mid-roll ad slots in the Studio monetization editor.",
   "permissions": ["activeTab"],
   "host_permissions": ["https://studio.youtube.com/*"],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "mid-roll-manager@nlvogel.com",
+      "strict_min_version": "128.0"
+    }
+  },
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
