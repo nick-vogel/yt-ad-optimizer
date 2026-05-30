@@ -27,19 +27,31 @@
     setTimeout(pollDuration, 2000);
   })();
 
-  // Listen for playhead seek requests from the content script
+  // Listen for playhead seek requests from the content script.
+  // Always respond exactly once, even on unexpected errors, so the content
+  // script never has to fall back to its timeout.
   document.addEventListener('ytadopt-seek', function (e) {
-    var ms = e.detail.ms;
-    var markers = document.querySelector('ytve-timeline-markers');
-    if (!markers || !markers.setPlayheadMs) {
-      respond('seek', false, 'setPlayheadMs not found');
-      return;
+    var responded = false;
+    function safeRespond(success, info, value) {
+      if (responded) return;
+      responded = true;
+      try {
+        respond('seek', success, info, value);
+      } catch (_) {}
     }
     try {
+      var ms = e.detail && e.detail.ms;
+      var markers = document.querySelector('ytve-timeline-markers');
+      if (!markers || typeof markers.setPlayheadMs !== 'function') {
+        safeRespond(false, 'setPlayheadMs not found');
+        return;
+      }
       markers.setPlayheadMs(ms);
-      respond('seek', true, 'setPlayheadMs', markers.playheadPositionMs);
+      var pos;
+      try { pos = markers.playheadPositionMs; } catch (_) { pos = null; }
+      safeRespond(true, 'setPlayheadMs', pos);
     } catch (err) {
-      respond('seek', false, err.message);
+      safeRespond(false, (err && err.message) || 'unknown error');
     }
   });
 

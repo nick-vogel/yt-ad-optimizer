@@ -353,7 +353,7 @@
     return times;
   }
 
-  function seekPlayhead(sec) {
+  function seekPlayheadOnce(sec) {
     return new Promise(function (resolve) {
       function onResult(e) {
         if (e.detail.type !== 'seek') return;
@@ -368,9 +368,18 @@
 
       setTimeout(function () {
         document.removeEventListener('ytadopt-result', onResult);
-        resolve({ success: false, info: 'timeout' });
+        resolve({ success: false, info: 'timeout — consider slowing down by increasing the speed (ms) value' });
       }, 3000);
     });
+  }
+
+  async function seekPlayhead(sec) {
+    var result = await seekPlayheadOnce(sec);
+    if (result.success) return result;
+    // One retry after a short backoff — the timeline element may have been
+    // mid-rerender on the first attempt.
+    await sleep(150);
+    return await seekPlayheadOnce(sec);
   }
 
   async function runInsert(config) {
