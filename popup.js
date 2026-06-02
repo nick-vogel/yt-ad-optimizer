@@ -88,20 +88,79 @@
     });
   }
 
+  var PING_ATTEMPTS = 3;          // ping tries, ~300ms apart
+  var PING_GAP_MS = 300;
+  var POST_INJECT_WAIT_MS = 400;  // let injected content script register its listener
+  var NOT_READY_MSG = 'Open a video\'s monetization editor to use this extension.';
+  var injectedOnce = false;       // re-inject at most once per popup open
+
+  function pingOnce(tabId, cb) {
+    chrome.tabs.sendMessage(tabId, { type: 'ping' }, function (response) {
+      cb(!chrome.runtime.lastError && response && response.alive);
+    });
+  }
+
+  // Ping with a few retries; absorbs the brief unresponsiveness right after the
+  // editor loads (e.g. an ad at 0:00 makes the preview autoplay an ad on open).
+  function pingWithRetries(tabId, attemptsLeft, cb) {
+    pingOnce(tabId, function (ok) {
+      if (ok) return cb(true);
+      if (attemptsLeft <= 1) return cb(false);
+      setTimeout(function () { pingWithRetries(tabId, attemptsLeft - 1, cb); }, PING_GAP_MS);
+    });
+  }
+
+  function onPingSucceeded(tabId) {
+    chrome.tabs.sendMessage(tabId, { type: 'checkReady' }, function (res) {
+      if (chrome.runtime.lastError) {
+        setStatus(false, 'Communication error');
+        return;
+      }
+      setStatus(res && res.ready, res ? res.reason : 'Unknown state');
+    });
+  }
+
+  // When the content script is unreachable (never injected, or orphaned after an
+  // extension reload), programmatically (re)inject it once, then ping again.
+  function tryReinjectThenPing(tab) {
+    var isStudio = tab.url && tab.url.indexOf('https://studio.youtube.com/') === 0;
+    if (injectedOnce || !isStudio || !chrome.scripting || !chrome.scripting.executeScript) {
+      setStatus(false, NOT_READY_MSG);
+      return;
+    }
+    injectedOnce = true;
+
+    var isolated = chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['selectors.js', 'content.js'],
+    });
+    // The MAIN-world bridge survives orphaning, so its re-injection is best-effort.
+    var main = chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['page-bridge.js'],
+      world: 'MAIN',
+    }).catch(function () { /* bridge likely still alive; non-fatal */ });
+
+    isolated.then(function () {
+      return main;
+    }).then(function () {
+      setTimeout(function () {
+        pingWithRetries(tab.id, PING_ATTEMPTS, function (ok) {
+          if (ok) onPingSucceeded(tab.id);
+          else setStatus(false, NOT_READY_MSG);
+        });
+      }, POST_INJECT_WAIT_MS);
+    }).catch(function () {
+      // executeScript throws on restricted/non-matching tabs or missing host access.
+      setStatus(false, NOT_READY_MSG);
+    });
+  }
+
   function pingContentScript() {
     queryActiveTab(function (tab) {
-      chrome.tabs.sendMessage(tab.id, { type: 'ping' }, function (response) {
-        if (chrome.runtime.lastError || !response || !response.alive) {
-          setStatus(false, 'Open a video\'s monetization editor to use this extension.');
-          return;
-        }
-        chrome.tabs.sendMessage(tab.id, { type: 'checkReady' }, function (res) {
-          if (chrome.runtime.lastError) {
-            setStatus(false, 'Communication error');
-            return;
-          }
-          setStatus(res && res.ready, res ? res.reason : 'Unknown state');
-        });
+      pingWithRetries(tab.id, PING_ATTEMPTS, function (ok) {
+        if (ok) onPingSucceeded(tab.id);
+        else tryReinjectThenPing(tab);
       });
     });
   }

@@ -1,8 +1,30 @@
 (function () {
   'use strict';
 
+  // ─── Idempotency / orphan-aware guard ────────────────────────
+  // This content script can be (re)injected programmatically by the popup when
+  // the statically-injected instance is missing or orphaned (e.g. after the
+  // extension is reloaded, which invalidates its chrome.runtime). A plain boolean
+  // flag would let a dead instance permanently block a fresh one, so instead a
+  // live instance exposes a heartbeat that only returns true while its runtime is
+  // valid. A newcomer defers to a genuinely live incumbent, but takes over a dead one.
+  function selfRuntimeValid() {
+    try { return !!(chrome.runtime && chrome.runtime.id); } catch (_) { return false; }
+  }
+  if (typeof window.__midRollAlive === 'function') {
+    var incumbentAlive = false;
+    try { incumbentAlive = window.__midRollAlive(); } catch (_) { incumbentAlive = false; }
+    if (incumbentAlive) return; // a genuinely live instance already owns this page
+    // else: incumbent is orphaned/dead — fall through and take over
+  }
+  window.__midRollAlive = function () { return selfRuntimeValid(); };
+
   var PREFIX = '[MidRollMgr]';
-  var running = false;
+
+  // Run state lives on window so a stray second instance (during a re-injection
+  // race) can never start a concurrent run/insert.
+  function isRunning() { return !!window.__midRollRunning; }
+  function setRunning(v) { window.__midRollRunning = !!v; }
 
   // ─── Utilities ───────────────────────────────────────────────
 
@@ -14,24 +36,33 @@
     if (!str) return NaN;
     var parts = str.trim().split(':').map(Number);
     if (parts.some(isNaN)) return NaN;
+    // YouTube emits H:MM:SS:FF once a video passes one hour (hours unbounded,
+    // so this covers 12h+ videos), MM:SS:FF otherwise.
+    if (parts.length === 4) return parts[0] * 3600 + parts[1] * 60 + parts[2] + parts[3] / 30;
     if (parts.length === 3) return parts[0] * 60 + parts[1] + parts[2] / 30;
     if (parts.length === 2) return parts[0] * 60 + parts[1];
     return NaN;
   }
 
+  function pad2(n) {
+    return n < 10 ? '0' + n : '' + n;
+  }
+
   function formatTime(sec) {
     if (sec == null || isNaN(sec)) return '??:??';
-    var m = Math.floor(sec / 60);
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
     var s = Math.floor(sec % 60);
-    return m + ':' + (s < 10 ? '0' : '') + s;
+    if (h > 0) return h + ':' + pad2(m) + ':' + pad2(s);
+    return m + ':' + pad2(s);
   }
 
   function secsToFramestamp(sec) {
-    var m = Math.floor(sec / 60);
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
     var s = Math.floor(sec % 60);
-    var mm = m < 10 ? '0' + m : '' + m;
-    var ss = s < 10 ? '0' + s : '' + s;
-    return mm + ':' + ss + ':00';
+    if (h > 0) return h + ':' + pad2(m) + ':' + pad2(s) + ':00';
+    return pad2(m) + ':' + pad2(s) + ':00';
   }
 
   function getVideoDurationSec() {
@@ -72,15 +103,16 @@
         reason: onMonetization ? 'Options panel not found' : 'Open the mid-roll ad slots editor',
       };
     }
+    // Panel is open → the extension is usable. Duration is advisory only:
+    // cleanup never reads it, and insert aborts gracefully on its own if it's
+    // still 0, so gating readiness on it only produces false "not ready" states.
     var rows = panel.querySelectorAll(SEL.row);
     var dur = getVideoDurationSec();
-    if (!(dur > 0)) {
-      return { ready: false, reason: 'Video still processing', durationSec: 0 };
-    }
     var contextStr = onMonetization ? '' : ' — upload dialog';
+    var durNote = dur > 0 ? (', ' + formatTime(dur) + ' long') : ' (duration loading…)';
     return {
       ready: true,
-      reason: 'Ready (' + rows.length + ' ad slots, ' + formatTime(dur) + ' long)' + contextStr,
+      reason: 'Ready (' + rows.length + ' ad slots' + durNote + ')' + contextStr,
       durationSec: dur,
     };
   }
@@ -94,11 +126,17 @@
     }, 500);
   }
 
+  // Disconnect/clear anything left behind by a prior (possibly orphaned) instance
+  // before installing fresh watchers, so they don't stack up.
+  if (window.__midRollObserver) { try { window.__midRollObserver.disconnect(); } catch (_) {} }
+  if (window.__midRollUrlTimer) { try { clearInterval(window.__midRollUrlTimer); } catch (_) {} }
+
   var observer = new MutationObserver(onDomChange);
   observer.observe(document.body, { childList: true, subtree: true });
+  window.__midRollObserver = observer;
 
   var lastHref = location.href;
-  setInterval(function () {
+  window.__midRollUrlTimer = setInterval(function () {
     if (location.href !== lastHref) {
       lastHref = location.href;
       onDomChange();
@@ -119,23 +157,23 @@
       return;
     }
     if (msg.type === 'run') {
-      if (running) {
+      if (isRunning()) {
         sendResponse({ started: false, reason: 'Already running' });
         return;
       }
-      running = true;
+      setRunning(true);
       sendResponse({ started: true });
-      runOptimizer(msg.config).finally(function () { running = false; });
+      runOptimizer(msg.config).finally(function () { setRunning(false); });
       return true;
     }
     if (msg.type === 'insert') {
-      if (running) {
+      if (isRunning()) {
         sendResponse({ started: false, reason: 'Already running' });
         return;
       }
-      running = true;
+      setRunning(true);
       sendResponse({ started: true });
-      runInsert(msg.config).finally(function () { running = false; });
+      runInsert(msg.config).finally(function () { setRunning(false); });
       return true;
     }
   });
@@ -266,6 +304,20 @@
 
   // ─── Phase C: Delete ─────────────────────────────────────────
 
+  // Find the live row matching a timestamp string. The list re-renders/virtualizes
+  // as rows are deleted, so captured button references go stale — always re-query.
+  function findLiveRowByTimestamp(tsDisplay) {
+    var panel = document.querySelector(SEL.panel);
+    if (!panel) return null;
+    var rows = panel.querySelectorAll(SEL.row);
+    for (var i = 0; i < rows.length; i++) {
+      if (!rows[i].isConnected) continue;
+      var input = rows[i].querySelector(SEL.rowTimestampInput);
+      if (input && input.value === tsDisplay) return rows[i];
+    }
+    return null;
+  }
+
   async function phaseC(toRemove, config) {
     if (config.dryRun) {
       log('Phase C: DRY RUN — skipping deletion of ' + toRemove.length + ' slots');
@@ -274,26 +326,41 @@
 
     log('Phase C: Deleting ' + toRemove.length + ' slots...');
 
+    // Delete newest-first so removals don't shift the rows we haven't reached yet.
     toRemove.sort(function (a, b) { return b.timeSec - a.timeSec; });
 
+    var speed = config.speedMs || 150;
     var deleted = 0;
 
     for (var i = 0; i < toRemove.length; i++) {
       var s = toRemove[i];
 
       try {
-        if (!s.deleteBtn) {
+        var row = findLiveRowByTimestamp(s.tsDisplay);
+        if (!row) {
+          log('  ' + s.tsDisplay + ' — row not found, skipping', 'warn');
+          continue;
+        }
+
+        var btn = row.querySelector(SEL.rowDeleteBtn);
+        if (!btn) {
           log('  ' + s.tsDisplay + ' — no delete button found, skipping', 'warn');
           continue;
         }
 
-        if (!s.deleteBtn.isConnected) {
-          log('  ' + s.tsDisplay + ' — button no longer in DOM, skipping', 'warn');
+        // Bring virtualized rows into the rendered viewport before clicking.
+        btn.scrollIntoView({ block: 'center' });
+        await sleep(Math.max(Math.floor(speed / 2), 30));
+
+        btn.click();
+        await sleep(speed);
+
+        // Confirm the row actually went away before counting it.
+        if (findLiveRowByTimestamp(s.tsDisplay)) {
+          log('  ' + s.tsDisplay + ' — still present after delete, skipping', 'warn');
           continue;
         }
 
-        s.deleteBtn.click();
-        await sleep(config.speedMs || 150);
         deleted++;
         log('  ' + s.tsDisplay + ' — deleted');
       } catch (err) {

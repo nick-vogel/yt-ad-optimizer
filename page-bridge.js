@@ -1,4 +1,11 @@
 (function () {
+  // Idempotency guard: the popup may re-inject this into the MAIN world. A plain
+  // boolean is safe here — MAIN world has no chrome.* context to invalidate, so an
+  // existing copy is never orphaned/broken; we just avoid stacking duplicate
+  // poll loops and seek listeners.
+  if (window.__ytAdoptBridgeLoaded) return;
+  window.__ytAdoptBridgeLoaded = true;
+
   // Expose video duration as a DOM attribute for the content script.
   // Sources, in priority order: framestamp input (monetization page),
   // timeline markers (upload dialog), HTMLVideoElement.duration (fallback).
