@@ -90,19 +90,34 @@
 
   function pingContentScript() {
     queryActiveTab(function (tab) {
-      chrome.tabs.sendMessage(tab.id, { type: 'ping' }, function (response) {
-        if (chrome.runtime.lastError || !response || !response.alive) {
-          setStatus(false, 'Open a video\'s monetization editor to use this extension.');
-          return;
-        }
-        chrome.tabs.sendMessage(tab.id, { type: 'checkReady' }, function (res) {
-          if (chrome.runtime.lastError) {
-            setStatus(false, 'Communication error');
+      // The content script can be briefly unresponsive right after the editor
+      // loads (e.g. an ad at 0:00 makes the preview autoplay an ad on open), so a
+      // single ping gives false negatives. Retry a few times before giving up.
+      var attempts = 0;
+      var maxAttempts = 3;
+
+      function attempt() {
+        chrome.tabs.sendMessage(tab.id, { type: 'ping' }, function (response) {
+          if (chrome.runtime.lastError || !response || !response.alive) {
+            attempts++;
+            if (attempts < maxAttempts) {
+              setTimeout(attempt, 300);
+              return;
+            }
+            setStatus(false, 'Open a video\'s monetization editor to use this extension.');
             return;
           }
-          setStatus(res && res.ready, res ? res.reason : 'Unknown state');
+          chrome.tabs.sendMessage(tab.id, { type: 'checkReady' }, function (res) {
+            if (chrome.runtime.lastError) {
+              setStatus(false, 'Communication error');
+              return;
+            }
+            setStatus(res && res.ready, res ? res.reason : 'Unknown state');
+          });
         });
-      });
+      }
+
+      attempt();
     });
   }
 

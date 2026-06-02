@@ -14,24 +14,33 @@
     if (!str) return NaN;
     var parts = str.trim().split(':').map(Number);
     if (parts.some(isNaN)) return NaN;
+    // YouTube emits H:MM:SS:FF once a video passes one hour (hours unbounded,
+    // so this covers 12h+ videos), MM:SS:FF otherwise.
+    if (parts.length === 4) return parts[0] * 3600 + parts[1] * 60 + parts[2] + parts[3] / 30;
     if (parts.length === 3) return parts[0] * 60 + parts[1] + parts[2] / 30;
     if (parts.length === 2) return parts[0] * 60 + parts[1];
     return NaN;
   }
 
+  function pad2(n) {
+    return n < 10 ? '0' + n : '' + n;
+  }
+
   function formatTime(sec) {
     if (sec == null || isNaN(sec)) return '??:??';
-    var m = Math.floor(sec / 60);
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
     var s = Math.floor(sec % 60);
-    return m + ':' + (s < 10 ? '0' : '') + s;
+    if (h > 0) return h + ':' + pad2(m) + ':' + pad2(s);
+    return m + ':' + pad2(s);
   }
 
   function secsToFramestamp(sec) {
-    var m = Math.floor(sec / 60);
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
     var s = Math.floor(sec % 60);
-    var mm = m < 10 ? '0' + m : '' + m;
-    var ss = s < 10 ? '0' + s : '' + s;
-    return mm + ':' + ss + ':00';
+    if (h > 0) return h + ':' + pad2(m) + ':' + pad2(s) + ':00';
+    return pad2(m) + ':' + pad2(s) + ':00';
   }
 
   function getVideoDurationSec() {
@@ -266,6 +275,20 @@
 
   // ─── Phase C: Delete ─────────────────────────────────────────
 
+  // Find the live row matching a timestamp string. The list re-renders/virtualizes
+  // as rows are deleted, so captured button references go stale — always re-query.
+  function findLiveRowByTimestamp(tsDisplay) {
+    var panel = document.querySelector(SEL.panel);
+    if (!panel) return null;
+    var rows = panel.querySelectorAll(SEL.row);
+    for (var i = 0; i < rows.length; i++) {
+      if (!rows[i].isConnected) continue;
+      var input = rows[i].querySelector(SEL.rowTimestampInput);
+      if (input && input.value === tsDisplay) return rows[i];
+    }
+    return null;
+  }
+
   async function phaseC(toRemove, config) {
     if (config.dryRun) {
       log('Phase C: DRY RUN — skipping deletion of ' + toRemove.length + ' slots');
@@ -274,26 +297,41 @@
 
     log('Phase C: Deleting ' + toRemove.length + ' slots...');
 
+    // Delete newest-first so removals don't shift the rows we haven't reached yet.
     toRemove.sort(function (a, b) { return b.timeSec - a.timeSec; });
 
+    var speed = config.speedMs || 150;
     var deleted = 0;
 
     for (var i = 0; i < toRemove.length; i++) {
       var s = toRemove[i];
 
       try {
-        if (!s.deleteBtn) {
+        var row = findLiveRowByTimestamp(s.tsDisplay);
+        if (!row) {
+          log('  ' + s.tsDisplay + ' — row not found, skipping', 'warn');
+          continue;
+        }
+
+        var btn = row.querySelector(SEL.rowDeleteBtn);
+        if (!btn) {
           log('  ' + s.tsDisplay + ' — no delete button found, skipping', 'warn');
           continue;
         }
 
-        if (!s.deleteBtn.isConnected) {
-          log('  ' + s.tsDisplay + ' — button no longer in DOM, skipping', 'warn');
+        // Bring virtualized rows into the rendered viewport before clicking.
+        btn.scrollIntoView({ block: 'center' });
+        await sleep(Math.max(Math.floor(speed / 2), 30));
+
+        btn.click();
+        await sleep(speed);
+
+        // Confirm the row actually went away before counting it.
+        if (findLiveRowByTimestamp(s.tsDisplay)) {
+          log('  ' + s.tsDisplay + ' — still present after delete, skipping', 'warn');
           continue;
         }
 
-        s.deleteBtn.click();
-        await sleep(config.speedMs || 150);
         deleted++;
         log('  ' + s.tsDisplay + ' — deleted');
       } catch (err) {
