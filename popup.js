@@ -16,6 +16,7 @@
   var silenceSpeedInput = document.getElementById('silence-speed');
   var cleanupSpeedInput = document.getElementById('cleanup-speed');
   var cleanupBadOnlyCb = document.getElementById('cleanup-bad-only');
+  var cleanupIntervalGroup = document.getElementById('cleanup-interval-group');
   var stopBtn = document.getElementById('stop-btn');
   var statusDot = document.getElementById('status-dot');
   var statusText = document.getElementById('status-text');
@@ -143,6 +144,17 @@
     if (pair[0]) pair[0].addEventListener('input', updateSpeedReadouts);
   });
   updateSpeedReadouts();
+
+  // ─── Cleanup control visibility ─────────────────────────────
+  // The interval only applies to a full cleanup, so hide it while
+  // "only remove flagged" is on (the default).
+  function syncCleanupControls() {
+    if (!cleanupIntervalGroup) return;
+    cleanupIntervalGroup.style.display =
+      (cleanupBadOnlyCb && cleanupBadOnlyCb.checked) ? 'none' : 'block';
+  }
+  if (cleanupBadOnlyCb) cleanupBadOnlyCb.addEventListener('change', syncCleanupControls);
+  syncCleanupControls();
 
   // ─── Status & Logging ───────────────────────────────────────
 
