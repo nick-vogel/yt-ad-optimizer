@@ -10,12 +10,13 @@
   var insertDryRunCb = document.getElementById('insert-dry-run');
   var insertSpeedInput = document.getElementById('insert-speed');
   var silenceBtn = document.getElementById('silence-btn');
-  var silenceIntervalInput = document.getElementById('silence-interval');
-  var silenceToleranceInput = document.getElementById('silence-tolerance');
+  var silenceMinGapInput = document.getElementById('silence-min-gap');
+  var silenceSensitivityInput = document.getElementById('silence-sensitivity');
   var silenceMinDurationInput = document.getElementById('silence-min-duration');
   var silenceSpeedInput = document.getElementById('silence-speed');
   var cleanupSpeedInput = document.getElementById('cleanup-speed');
   var cleanupBadOnlyCb = document.getElementById('cleanup-bad-only');
+  var stopBtn = document.getElementById('stop-btn');
   var statusDot = document.getElementById('status-dot');
   var statusText = document.getElementById('status-text');
   var summaryEl = document.getElementById('summary');
@@ -76,6 +77,9 @@
       runBtn.textContent = 'Running...';
       insertBtn.textContent = 'Running...';
       silenceBtn.textContent = 'Running...';
+      stopBtn.style.display = 'block';
+      stopBtn.disabled = false;
+      stopBtn.textContent = 'Stop';
     } else {
       runBtn.disabled = !isReady;
       insertBtn.disabled = !isReady;
@@ -83,6 +87,7 @@
       runBtn.textContent = 'Run Cleanup';
       insertBtn.textContent = 'Insert Ad Slots';
       silenceBtn.textContent = 'Insert Into Silence';
+      stopBtn.style.display = 'none';
     }
   }
 
@@ -189,6 +194,9 @@
     if (msg.type === 'summary') {
       showSummary(msg.found, msg.keeping, msg.deleting);
     }
+    if (msg.type === 'done') {
+      setButtonsRunning(false);
+    }
   });
 
   // ─── Cleanup Button ─────────────────────────────────────────
@@ -252,8 +260,8 @@
 
     var config = {
       mode: 'silence',
-      intervalSec: Math.max(parseInt(silenceIntervalInput.value, 10) || 120, 1),
-      tolerancePct: Math.min(Math.max(parseInt(silenceToleranceInput.value, 10) || 25, 1), 100),
+      minGapSec: Math.max(parseInt(silenceMinGapInput.value, 10) || 300, 1),
+      tolerancePct: Math.min(Math.max(parseInt(silenceSensitivityInput.value, 10) || 25, 1), 100),
       minSilenceMs: Math.max(parseInt(silenceMinDurationInput.value, 10) || 500, 100),
       dryRun: false,
       speedMs: parseInt(silenceSpeedInput.value, 10) || 50,
@@ -265,6 +273,18 @@
         appendLog('Failed to start: ' + errMsg, 'error');
         setButtonsRunning(false);
       }
+    });
+  });
+
+  // ─── Stop Button ────────────────────────────────────────────
+
+  stopBtn.addEventListener('click', function () {
+    if (!activeTabId) return;
+    stopBtn.disabled = true;
+    stopBtn.textContent = 'Stopping…';
+    chrome.tabs.sendMessage(activeTabId, { type: 'stop' }, function () {
+      // Ignore errors; the run also emits 'done' which restores the buttons.
+      void chrome.runtime.lastError;
     });
   });
 

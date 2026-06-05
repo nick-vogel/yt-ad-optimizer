@@ -26,6 +26,11 @@
   function isRunning() { return !!window.__midRollRunning; }
   function setRunning(v) { window.__midRollRunning = !!v; }
 
+  // Cooperative cancellation: a 'stop' message flips this, and the insert/delete
+  // loops check it between iterations to bail out cleanly.
+  function isCancelled() { return !!window.__midRollCancel; }
+  function setCancel(v) { window.__midRollCancel = !!v; }
+
   // ─── Utilities ───────────────────────────────────────────────
 
   function sleep(ms) {
@@ -156,14 +161,23 @@
       sendResponse(checkReadiness());
       return;
     }
+    if (msg.type === 'stop') {
+      setCancel(true);
+      sendResponse({ stopped: true });
+      return;
+    }
     if (msg.type === 'run') {
       if (isRunning()) {
         sendResponse({ started: false, reason: 'Already running' });
         return;
       }
       setRunning(true);
+      setCancel(false);
       sendResponse({ started: true });
-      runOptimizer(msg.config).finally(function () { setRunning(false); });
+      runOptimizer(msg.config).finally(function () {
+        setRunning(false);
+        safeSendMessage({ type: 'done' });
+      });
       return true;
     }
     if (msg.type === 'insert') {
@@ -172,8 +186,12 @@
         return;
       }
       setRunning(true);
+      setCancel(false);
       sendResponse({ started: true });
-      runInsert(msg.config).finally(function () { setRunning(false); });
+      runInsert(msg.config).finally(function () {
+        setRunning(false);
+        safeSendMessage({ type: 'done' });
+      });
       return true;
     }
   });
@@ -354,6 +372,10 @@
     var deleted = 0;
 
     for (var i = 0; i < toRemove.length; i++) {
+      if (isCancelled()) {
+        log('Stopped by user — deleted ' + deleted + ' of ' + toRemove.length, 'warn');
+        break;
+      }
       var s = toRemove[i];
 
       try {
@@ -503,21 +525,20 @@
     });
   }
 
-  // Snap each interval target to the midpoint of the nearest silent segment
-  // within windowSec; targets with no nearby silence are skipped.
-  function snapTargetsToSilence(segments, startSec, intervalSec, endSec, windowSec) {
-    var mids = segments.map(function (s) { return (s.startSec + s.endSec) / 2; });
+  // Greedily place one ad at the midpoint of a silent segment, then require at
+  // least minGapSec before the next, walking segments in time order. This caps
+  // the count predictably and lands every ad inside a detected silence.
+  function pickSilencesWithSpacing(segments, minGapSec) {
+    var mids = segments
+      .map(function (s) { return (s.startSec + s.endSec) / 2; })
+      .sort(function (a, b) { return a - b; });
     var picked = [];
-    var seen = {};
-    for (var target = startSec; target < endSec; target += intervalSec) {
-      var best = null, bestDist = Infinity;
-      for (var i = 0; i < mids.length; i++) {
-        var d = Math.abs(mids[i] - target);
-        if (d <= windowSec && d < bestDist) { bestDist = d; best = mids[i]; }
+    var last = -Infinity;
+    for (var i = 0; i < mids.length; i++) {
+      if (mids[i] - last >= minGapSec) {
+        picked.push(Math.round(mids[i]));
+        last = mids[i];
       }
-      if (best === null) continue;
-      var r = Math.round(best);
-      if (!seen[r]) { seen[r] = true; picked.push(r); }
     }
     return picked;
   }
@@ -526,8 +547,8 @@
     var silenceMode = config.mode === 'silence';
     log('=== Starting ' + (silenceMode ? 'silence insert' : 'insert') + ' ===');
     if (silenceMode) {
-      log('Config: ~every ' + config.intervalSec + 's snapped to silence, tolerance=' +
-        config.tolerancePct + '%, minSilence=' + config.minSilenceMs + 'ms, dryRun=' + config.dryRun);
+      log('Config: place in silence, min gap=' + config.minGapSec + 's, sensitivity=' +
+        config.tolerancePct + '%, minSilence=' + config.minSilenceMs + 'ms');
     } else {
       log('Config: every ' + config.intervalSec + 's, starting at ' + config.startSec + 's, dryRun=' + config.dryRun);
     }
@@ -582,12 +603,9 @@
           return;
         }
         log('Found ' + analysis.segments.length + ' silent segments');
-        // Target roughly one ad per interval, snapped to a nearby silence.
-        var windowSec = Math.min(config.intervalSec / 2, 30);
-        var startAt = config.intervalSec; // first target ~one interval in
-        var snapped = snapTargetsToSilence(analysis.segments, startAt, config.intervalSec, endSec, windowSec);
-        for (var si = 0; si < snapped.length; si++) {
-          if (!existingTimes.has(snapped[si])) timesToInsert.push(snapped[si]);
+        var picked = pickSilencesWithSpacing(analysis.segments, config.minGapSec);
+        for (var si = 0; si < picked.length; si++) {
+          if (picked[si] < endSec && !existingTimes.has(picked[si])) timesToInsert.push(picked[si]);
         }
       } else {
         for (var t = config.startSec; t < endSec; t += config.intervalSec) {
@@ -617,6 +635,10 @@
 
       var inserted = 0;
       for (var k = 0; k < timesToInsert.length; k++) {
+        if (isCancelled()) {
+          log('Stopped by user — inserted ' + inserted + ' of ' + timesToInsert.length, 'warn');
+          break;
+        }
         var sec = timesToInsert[k];
         var framestamp = secsToFramestamp(sec);
 

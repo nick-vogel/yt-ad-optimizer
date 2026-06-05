@@ -40,21 +40,22 @@
 
     <div id="tab-silence" class="tab-content">
       <div class="control-group">
-        <label for="silence-interval">Place an ad roughly every N seconds</label>
-        <input type="number" id="silence-interval" value="120" min="30" max="1800" step="15" />
+        <label for="silence-min-gap">Minimum seconds between ads</label>
+        <input type="number" id="silence-min-gap" value="300" min="5" max="3600" step="5" />
       </div>
+      <div class="speed-hint">Ads are placed in silent gaps, never closer together than this. Larger = fewer ads.</div>
 
       <div class="control-group">
-        <label for="silence-tolerance">Silence tolerance (%)</label>
-        <input type="number" id="silence-tolerance" value="25" min="1" max="100" step="1" />
+        <label for="silence-sensitivity">Silence sensitivity (%)</label>
+        <input type="number" id="silence-sensitivity" value="25" min="1" max="100" step="1" />
       </div>
-      <div class="speed-hint">How quiet a moment must be (relative to the loudest point) to count as silence.</div>
+      <div class="speed-hint">Higher detects more (and subtler) quiet moments → more candidate spots. Lower only counts near-total silence → fewer.</div>
 
       <div class="control-group">
         <label for="silence-min-duration">Min silence duration (ms)</label>
         <input type="number" id="silence-min-duration" value="500" min="100" max="10000" step="100" />
       </div>
-      <div class="speed-hint">How long a quiet stretch must last to qualify. Each target time is snapped to the nearest qualifying silence.</div>
+      <div class="speed-hint">How long a quiet stretch must last to qualify as a usable gap.</div>
 
       <div class="control-group">
         <label for="silence-speed">Speed (ms)</label>
@@ -84,6 +85,7 @@
       <div class="speed-hint">If your browser lags or placements drop, slow down by increasing the speed (ms) value.</div>
       <button id="run-btn" disabled>Run Cleanup</button>
     </div>
+    <button id="stop-btn" style="display: none">Stop</button>
     <div id="summary"></div>
     <div id="log-area"></div>
 
