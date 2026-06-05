@@ -14,8 +14,9 @@
 
 var SILENCE_PROBE = (function () {
   // ─── Thresholds (the two knobs the competitor exposes) ──────────────────────
-  var TOLERANCE_PCT = 25;    // amplitude at/below this % of peak counts as "quiet"
+  var TOLERANCE_PCT = 25;    // envelope at/below this % of peak counts as "quiet"
   var MIN_SILENCE_MS = 500;  // a quiet run shorter than this is ignored
+  var WINDOW_MS = 100;       // envelope window: RMS over this span smooths the raw signal
 
   var htmlProto = Object.getOwnPropertyNames(HTMLElement.prototype);
 
@@ -78,12 +79,29 @@ var SILENCE_PROBE = (function () {
     return segs;
   }
 
+  // Studio's audioWaveformData is raw SIGNED PCM-ish samples (~64/sec), so it
+  // crosses zero constantly even in loud audio. Reduce it to an amplitude
+  // envelope first: RMS over WINDOW_MS windows. profileToSilence then thresholds
+  // that smooth envelope instead of the noisy raw signal.
+  function envelopeFromSamples(data, durationSec) {
+    if (!data || !data.length || durationSec <= 0) return [];
+    var sampleRate = data.length / durationSec;
+    var win = Math.max(1, Math.round((WINDOW_MS / 1000) * sampleRate));
+    var env = [];
+    for (var i = 0; i < data.length; i += win) {
+      var sumSq = 0, n = 0;
+      for (var j = i; j < i + win && j < data.length; j++) { sumSq += data[j] * data[j]; n++; }
+      env.push(n ? Math.sqrt(sumSq / n) : 0);
+    }
+    return env;
+  }
+
   // ─── Source C: Studio's own peaks/waveform data ─────────────────────────────
   // Walk likely custom elements for a numeric array property or a waveform URL.
   function probeSourceC() {
     var candidates = document.querySelectorAll(
-      'ytve-timeline, ytve-timeline-markers, ytve-audio-track, ytve-waveform, ' +
-      '[class*="audio"], [class*="waveform"], ytve-video-editor'
+      'ytve-timeline, ytve-timeline-markers, ytve-audio-track, ytve-audio-waveform, ' +
+      'ytve-waveform, [class*="audio"], [class*="waveform"], ytve-video-editor'
     );
     var hits = [];
     candidates.forEach(function (el) {
@@ -153,9 +171,15 @@ var SILENCE_PROBE = (function () {
       var arr = c.find(function (h) { return h.len; });
       if (arr) {
         var el = document.querySelector(arr.tag);
-        var profile = Array.prototype.slice.call(el[arr.prop]);
-        var segs = profileToSilence(profile, durationSec);
-        console.log('✅ Source C usable via ' + arr.tag + '.' + arr.prop + ' → silent segments:', segs);
+        var raw = Array.prototype.slice.call(el[arr.prop]);
+        // Raw samples are signed (~64/sec) — reduce to an RMS envelope first.
+        var envelope = envelopeFromSamples(raw, durationSec);
+        var segs = profileToSilence(envelope, durationSec);
+        var totalQuiet = segs.reduce(function (s, x) { return s + x.durSec; }, 0);
+        console.log('✅ Source C usable via ' + arr.tag + '.' + arr.prop +
+          ' (' + raw.length + ' samples → ' + envelope.length + ' windows). ' +
+          segs.length + ' silent segments, ' + totalQuiet.toFixed(1) + 's total quiet:', segs);
+        console.log('   (verify these line up with quiet stretches in the on-screen waveform)');
         return { source: 'C', segments: segs };
       }
     }
@@ -176,8 +200,15 @@ var SILENCE_PROBE = (function () {
     return { source: null, segments: [] };
   }
 
-  return { run: run, profileToSilence: profileToSilence, getDurationSec: getDurationSec,
-    set tolerance(v) { TOLERANCE_PCT = v; }, set minSilenceMs(v) { MIN_SILENCE_MS = v; } };
+  return {
+    run: run,
+    profileToSilence: profileToSilence,
+    envelopeFromSamples: envelopeFromSamples,
+    getDurationSec: getDurationSec,
+    set tolerance(v) { TOLERANCE_PCT = v; },
+    set minSilenceMs(v) { MIN_SILENCE_MS = v; },
+    set windowMs(v) { WINDOW_MS = v; },
+  };
 })();
 
-console.log('Loaded. Run:  SILENCE_PROBE.run()');
+console.log('Loaded. Run:  SILENCE_PROBE.run()  (tune: SILENCE_PROBE.tolerance = 15)');

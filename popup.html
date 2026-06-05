@@ -14,6 +14,7 @@
 
     <div class="tab-bar">
       <button class="tab active" data-tab="insert">Insert</button>
+      <button class="tab" data-tab="silence">Silence</button>
       <button class="tab" data-tab="cleanup">Cleanup</button>
     </div>
 
@@ -37,7 +38,39 @@
       <button id="insert-btn" disabled>Insert Ad Slots</button>
     </div>
 
+    <div id="tab-silence" class="tab-content">
+      <div class="control-group">
+        <label for="silence-interval">Place an ad roughly every N seconds</label>
+        <input type="number" id="silence-interval" value="120" min="30" max="1800" step="15" />
+      </div>
+
+      <div class="control-group">
+        <label for="silence-tolerance">Silence tolerance (%)</label>
+        <input type="number" id="silence-tolerance" value="25" min="1" max="100" step="1" />
+      </div>
+      <div class="speed-hint">How quiet a moment must be (relative to the loudest point) to count as silence.</div>
+
+      <div class="control-group">
+        <label for="silence-min-duration">Min silence duration (ms)</label>
+        <input type="number" id="silence-min-duration" value="500" min="100" max="10000" step="100" />
+      </div>
+      <div class="speed-hint">How long a quiet stretch must last to qualify. Each target time is snapped to the nearest qualifying silence.</div>
+
+      <div class="control-group">
+        <label for="silence-speed">Speed (ms)</label>
+        <input type="number" id="silence-speed" value="50" min="50" max="2000" step="50" />
+      </div>
+
+      <div class="speed-hint">If your browser lags or placements drop, slow down by increasing the speed (ms) value.</div>
+      <button id="silence-btn" disabled>Insert Into Silence</button>
+    </div>
+
     <div id="tab-cleanup" class="tab-content">
+      <div class="checkbox-group">
+        <input type="checkbox" id="cleanup-bad-only" />
+        <label for="cleanup-bad-only">Only remove flagged (bad) ad slots</label>
+      </div>
+
       <div class="control-group">
         <label for="interval">Min seconds between ads</label>
         <input type="number" id="interval" value="60" min="5" max="600" step="5" />

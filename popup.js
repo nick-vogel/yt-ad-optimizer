@@ -9,7 +9,13 @@
   var insertStartInput = document.getElementById('insert-start');
   var insertDryRunCb = document.getElementById('insert-dry-run');
   var insertSpeedInput = document.getElementById('insert-speed');
+  var silenceBtn = document.getElementById('silence-btn');
+  var silenceIntervalInput = document.getElementById('silence-interval');
+  var silenceToleranceInput = document.getElementById('silence-tolerance');
+  var silenceMinDurationInput = document.getElementById('silence-min-duration');
+  var silenceSpeedInput = document.getElementById('silence-speed');
   var cleanupSpeedInput = document.getElementById('cleanup-speed');
+  var cleanupBadOnlyCb = document.getElementById('cleanup-bad-only');
   var statusDot = document.getElementById('status-dot');
   var statusText = document.getElementById('status-text');
   var summaryEl = document.getElementById('summary');
@@ -40,6 +46,7 @@
     statusText.textContent = text || (ready ? 'Ready' : 'Not ready');
     runBtn.disabled = !ready;
     insertBtn.disabled = !ready;
+    silenceBtn.disabled = !ready;
   }
 
   function appendLog(text, level) {
@@ -65,13 +72,17 @@
     if (running) {
       runBtn.disabled = true;
       insertBtn.disabled = true;
+      silenceBtn.disabled = true;
       runBtn.textContent = 'Running...';
       insertBtn.textContent = 'Running...';
+      silenceBtn.textContent = 'Running...';
     } else {
       runBtn.disabled = !isReady;
       insertBtn.disabled = !isReady;
+      silenceBtn.disabled = !isReady;
       runBtn.textContent = 'Run Cleanup';
       insertBtn.textContent = 'Insert Ad Slots';
+      silenceBtn.textContent = 'Insert Into Silence';
     }
   }
 
@@ -189,6 +200,7 @@
 
     var config = {
       intervalSec: parseInt(intervalInput.value, 10) || 60,
+      badOnly: cleanupBadOnlyCb ? cleanupBadOnlyCb.checked : false,
       dryRun: dryRunCb ? dryRunCb.checked : false,
       speedMs: parseInt(cleanupSpeedInput.value, 10) || 150,
     };
@@ -219,6 +231,32 @@
       })(),
       dryRun: insertDryRunCb ? insertDryRunCb.checked : false,
       speedMs: parseInt(insertSpeedInput.value, 10) || 50,
+    };
+
+    chrome.tabs.sendMessage(activeTabId, { type: 'insert', config: config }, function (response) {
+      if (chrome.runtime.lastError || !response || !response.started) {
+        var errMsg = response ? response.reason : (chrome.runtime.lastError ? chrome.runtime.lastError.message : 'no response');
+        appendLog('Failed to start: ' + errMsg, 'error');
+        setButtonsRunning(false);
+      }
+    });
+  });
+
+  // ─── Silence Button ─────────────────────────────────────────
+
+  silenceBtn.addEventListener('click', function () {
+    if (!isReady || !activeTabId) return;
+
+    setButtonsRunning(true);
+    clearLog();
+
+    var config = {
+      mode: 'silence',
+      intervalSec: Math.max(parseInt(silenceIntervalInput.value, 10) || 120, 1),
+      tolerancePct: Math.min(Math.max(parseInt(silenceToleranceInput.value, 10) || 25, 1), 100),
+      minSilenceMs: Math.max(parseInt(silenceMinDurationInput.value, 10) || 500, 100),
+      dryRun: false,
+      speedMs: parseInt(silenceSpeedInput.value, 10) || 50,
     };
 
     chrome.tabs.sendMessage(activeTabId, { type: 'insert', config: config }, function (response) {

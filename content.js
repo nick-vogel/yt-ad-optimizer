@@ -230,10 +230,31 @@
 
   // ─── Phase B: Filter ─────────────────────────────────────────
 
-  function phaseB(slots, intervalSec) {
-    log('Phase B: Filtering (interval=' + intervalSec + 's)...');
-
+  function phaseB(slots, intervalSec, badOnly) {
     slots.sort(function (a, b) { return a.timeSec - b.timeSec; });
+
+    // Bad-only: remove just the slots flagged "unlikely to show ads" (and never
+    // automatics), leaving every other manual placement untouched. Used after a
+    // silence pass to prune only the slots YouTube flagged.
+    if (badOnly) {
+      log('Phase B: Filtering (flagged/bad slots only)...');
+      var keepB = [];
+      var removeB = [];
+      for (var bi = 0; bi < slots.length; bi++) {
+        var sb = slots[bi];
+        if (sb.isWarning && sb.type !== 'automatic') {
+          removeB.push(sb);
+          log('  ' + sb.tsDisplay + ' — REMOVE (flagged)');
+        } else {
+          keepB.push(sb);
+        }
+      }
+      log('Phase B: Keeping ' + keepB.length + ', removing ' + removeB.length);
+      safeSendMessage({ type: 'summary', found: slots.length, keeping: keepB.length, deleting: removeB.length });
+      return { keep: keepB, remove: removeB };
+    }
+
+    log('Phase B: Filtering (interval=' + intervalSec + 's)...');
 
     var autoTimes = [];
     for (var a = 0; a < slots.length; a++) {
@@ -384,7 +405,7 @@
     var slots = phaseA();
     if (slots.length === 0) { log('No slots to process'); return; }
 
-    var filtered = phaseB(slots, config.intervalSec || 60);
+    var filtered = phaseB(slots, config.intervalSec || 60, config.badOnly);
     if (filtered.remove.length === 0) {
       log('Nothing to remove — all slots pass filter');
       return;
@@ -395,7 +416,11 @@
 
   async function runOptimizer(config) {
     log('=== Starting optimizer ===');
-    log('Config: interval=' + config.intervalSec + 's, dryRun=' + config.dryRun + ', speed=' + config.speedMs + 'ms');
+    if (config.badOnly) {
+      log('Config: remove flagged/bad slots only, dryRun=' + config.dryRun + ', speed=' + config.speedMs + 'ms');
+    } else {
+      log('Config: interval=' + config.intervalSec + 's, dryRun=' + config.dryRun + ', speed=' + config.speedMs + 'ms');
+    }
 
     try {
       await runOptimizerInternal(config);
@@ -449,9 +474,63 @@
     return await seekPlayheadOnce(sec);
   }
 
+  // Ask the page bridge to reduce Studio's audio waveform to silent segments.
+  // Resolves to { success, segments:[{startSec,endSec}], info }.
+  function analyzeAudio(opts) {
+    return new Promise(function (resolve) {
+      function onResult(e) {
+        if (e.detail.type !== 'analyzeAudio') return;
+        document.removeEventListener('ytadopt-result', onResult);
+        resolve({
+          success: e.detail.success,
+          segments: e.detail.value || [],
+          info: e.detail.info,
+        });
+      }
+      document.addEventListener('ytadopt-result', onResult);
+
+      document.dispatchEvent(new CustomEvent('ytadopt-analyzeAudio', {
+        detail: {
+          tolerancePct: opts.tolerancePct,
+          minSilenceMs: opts.minSilenceMs,
+        }
+      }));
+
+      setTimeout(function () {
+        document.removeEventListener('ytadopt-result', onResult);
+        resolve({ success: false, segments: [], info: 'audio analysis timed out' });
+      }, 5000);
+    });
+  }
+
+  // Snap each interval target to the midpoint of the nearest silent segment
+  // within windowSec; targets with no nearby silence are skipped.
+  function snapTargetsToSilence(segments, startSec, intervalSec, endSec, windowSec) {
+    var mids = segments.map(function (s) { return (s.startSec + s.endSec) / 2; });
+    var picked = [];
+    var seen = {};
+    for (var target = startSec; target < endSec; target += intervalSec) {
+      var best = null, bestDist = Infinity;
+      for (var i = 0; i < mids.length; i++) {
+        var d = Math.abs(mids[i] - target);
+        if (d <= windowSec && d < bestDist) { bestDist = d; best = mids[i]; }
+      }
+      if (best === null) continue;
+      var r = Math.round(best);
+      if (!seen[r]) { seen[r] = true; picked.push(r); }
+    }
+    return picked;
+  }
+
   async function runInsert(config) {
-    log('=== Starting insert ===');
-    log('Config: every ' + config.intervalSec + 's, starting at ' + config.startSec + 's, dryRun=' + config.dryRun);
+    var silenceMode = config.mode === 'silence';
+    log('=== Starting ' + (silenceMode ? 'silence insert' : 'insert') + ' ===');
+    if (silenceMode) {
+      log('Config: ~every ' + config.intervalSec + 's snapped to silence, tolerance=' +
+        config.tolerancePct + '%, minSilence=' + config.minSilenceMs + 'ms, dryRun=' + config.dryRun);
+    } else {
+      log('Config: every ' + config.intervalSec + 's, starting at ' + config.startSec + 's, dryRun=' + config.dryRun);
+    }
 
     try {
       var existingTimes = getExistingTimesSet();
@@ -492,10 +571,30 @@
       log('Video duration: ' + formatTime(endSec));
 
       var timesToInsert = [];
-      for (var t = config.startSec; t < endSec; t += config.intervalSec) {
-        var rounded = Math.round(t);
-        if (!existingTimes.has(rounded)) {
-          timesToInsert.push(rounded);
+      if (silenceMode) {
+        var analysis = await analyzeAudio({
+          tolerancePct: config.tolerancePct,
+          minSilenceMs: config.minSilenceMs,
+        });
+        if (!analysis.success) {
+          log('Audio analysis failed: ' + (analysis.info || 'unknown'), 'error');
+          log('=== Complete ===');
+          return;
+        }
+        log('Found ' + analysis.segments.length + ' silent segments');
+        // Target roughly one ad per interval, snapped to a nearby silence.
+        var windowSec = Math.min(config.intervalSec / 2, 30);
+        var startAt = config.intervalSec; // first target ~one interval in
+        var snapped = snapTargetsToSilence(analysis.segments, startAt, config.intervalSec, endSec, windowSec);
+        for (var si = 0; si < snapped.length; si++) {
+          if (!existingTimes.has(snapped[si])) timesToInsert.push(snapped[si]);
+        }
+      } else {
+        for (var t = config.startSec; t < endSec; t += config.intervalSec) {
+          var rounded = Math.round(t);
+          if (!existingTimes.has(rounded)) {
+            timesToInsert.push(rounded);
+          }
         }
       }
 
