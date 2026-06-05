@@ -213,7 +213,10 @@
     var config = {
       durationSec: 0,
       intervalSec: Math.max(parseInt(insertIntervalInput.value, 10) || 60, 1),
-      startSec: parseInt(insertStartInput.value, 10) || 60,
+      startSec: (function () {
+        var n = parseInt(insertStartInput.value, 10);
+        return isNaN(n) ? 60 : Math.max(n, 0);
+      })(),
       dryRun: insertDryRunCb ? insertDryRunCb.checked : false,
       speedMs: parseInt(insertSpeedInput.value, 10) || 50,
     };
