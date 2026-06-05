@@ -20,6 +20,9 @@
   window.__midRollAlive = function () { return selfRuntimeValid(); };
 
   var PREFIX = '[MidRollMgr]';
+  var VERSION = (function () {
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '?'; }
+  })();
 
   // Run state lives on window so a stray second instance (during a re-injection
   // race) can never start a concurrent run/insert.
@@ -437,7 +440,7 @@
   }
 
   async function runOptimizer(config) {
-    log('=== Starting optimizer ===');
+    log('=== Starting optimizer (v' + VERSION + ') ===');
     if (config.badOnly) {
       log('Config: remove flagged/bad slots only, dryRun=' + config.dryRun + ', speed=' + config.speedMs + 'ms');
     } else {
@@ -545,7 +548,7 @@
 
   async function runInsert(config) {
     var silenceMode = config.mode === 'silence';
-    log('=== Starting ' + (silenceMode ? 'silence insert' : 'insert') + ' ===');
+    log('=== Starting ' + (silenceMode ? 'silence insert' : 'insert') + ' (v' + VERSION + ') ===');
     if (silenceMode) {
       log('Config: place in silence, min gap=' + config.minGapSec + 's, sensitivity=' +
         config.tolerancePct + '%, minSilence=' + config.minSilenceMs + 'ms');
