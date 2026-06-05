@@ -54,6 +54,19 @@ h2 {
   color: #aaa;
 }
 
+#preview {
+  display: none;
+  margin-top: -8px;
+  margin-bottom: 14px;
+  padding: 7px 10px;
+  background: #14271a;
+  border: 1px solid #2ea043;
+  border-radius: 6px;
+  color: #5fd47a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .control-group {
   margin-bottom: 10px;
 }
@@ -64,6 +77,11 @@ h2 {
   color: #ccc;
   margin-bottom: 4px;
   cursor: pointer;
+}
+
+.readout {
+  color: #888;
+  font-weight: 400;
 }
 
 .control-group input[type='text'],
@@ -141,7 +159,8 @@ h2 {
 }
 
 #run-btn,
-#insert-btn {
+#insert-btn,
+#silence-btn {
   width: 100%;
   padding: 10px;
   background: #ff0000;
@@ -157,15 +176,36 @@ h2 {
 }
 
 #run-btn:hover:not(:disabled),
-#insert-btn:hover:not(:disabled) {
+#insert-btn:hover:not(:disabled),
+#silence-btn:hover:not(:disabled) {
   opacity: 0.9;
 }
 
 #run-btn:disabled,
-#insert-btn:disabled {
+#insert-btn:disabled,
+#silence-btn:disabled {
   background: #555;
   color: #888;
   cursor: not-allowed;
+}
+
+#stop-btn {
+  width: 100%;
+  padding: 10px;
+  background: #2a2a2a;
+  color: #f85149;
+  border: 1px solid #f85149;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 6px;
+  margin-bottom: 12px;
+  transition: opacity 0.15s;
+}
+
+#stop-btn:hover {
+  opacity: 0.9;
 }
 
 .speed-hint {

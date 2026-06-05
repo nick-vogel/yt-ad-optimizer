@@ -11,9 +11,11 @@
       <span id="status-dot" class="checking"></span>
       <span id="status-text">Checking...</span>
     </div>
+    <div id="preview"></div>
 
     <div class="tab-bar">
       <button class="tab active" data-tab="insert">Insert</button>
+      <button class="tab" data-tab="silence">Silence</button>
       <button class="tab" data-tab="cleanup">Cleanup</button>
     </div>
 
@@ -29,7 +31,7 @@
       </div>
 
       <div class="control-group">
-        <label for="insert-speed">Speed (ms)</label>
+        <label for="insert-speed">Speed (ms) <span class="readout" id="insert-speed-readout"></span></label>
         <input type="number" id="insert-speed" value="50" min="50" max="2000" step="50" />
       </div>
 
@@ -37,20 +39,54 @@
       <button id="insert-btn" disabled>Insert Ad Slots</button>
     </div>
 
-    <div id="tab-cleanup" class="tab-content">
+    <div id="tab-silence" class="tab-content">
       <div class="control-group">
+        <label for="silence-min-gap">Minimum seconds between ads</label>
+        <input type="number" id="silence-min-gap" value="300" min="5" max="3600" step="5" />
+      </div>
+      <div class="speed-hint">Ads are placed in silent gaps, never closer together than this. Larger = fewer ads.</div>
+
+      <div class="control-group">
+        <label for="silence-sensitivity">Silence sensitivity (%)</label>
+        <input type="number" id="silence-sensitivity" value="25" min="1" max="100" step="1" />
+      </div>
+      <div class="speed-hint">Lower → fewer ads (only near-total silence counts); higher → more ads (subtler quiet moments count too).</div>
+
+      <div class="control-group">
+        <label for="silence-min-duration">Min silence duration (seconds)</label>
+        <input type="number" id="silence-min-duration" value="0.5" min="0.25" max="10" step="0.25" />
+      </div>
+      <div class="speed-hint">How long a quiet stretch must last to qualify as a usable gap.</div>
+
+      <div class="control-group">
+        <label for="silence-speed">Speed (ms) <span class="readout" id="silence-speed-readout"></span></label>
+        <input type="number" id="silence-speed" value="50" min="50" max="2000" step="50" />
+      </div>
+
+      <div class="speed-hint">If your browser lags or placements drop, slow down by increasing the speed (ms) value.</div>
+      <button id="silence-btn" disabled>Insert Into Silence</button>
+    </div>
+
+    <div id="tab-cleanup" class="tab-content">
+      <div class="checkbox-group">
+        <input type="checkbox" id="cleanup-bad-only" checked />
+        <label for="cleanup-bad-only">Only remove flagged (bad) ad slots</label>
+      </div>
+
+      <div class="control-group" id="cleanup-interval-group">
         <label for="interval">Min seconds between ads</label>
         <input type="number" id="interval" value="60" min="5" max="600" step="5" />
       </div>
 
       <div class="control-group">
-        <label for="cleanup-speed">Speed (ms)</label>
+        <label for="cleanup-speed">Speed (ms) <span class="readout" id="cleanup-speed-readout"></span></label>
         <input type="number" id="cleanup-speed" value="50" min="50" max="2000" step="50" />
       </div>
 
       <div class="speed-hint">If your browser lags or placements drop, slow down by increasing the speed (ms) value.</div>
       <button id="run-btn" disabled>Run Cleanup</button>
     </div>
+    <button id="stop-btn" style="display: none">Stop</button>
     <div id="summary"></div>
     <div id="log-area"></div>
 

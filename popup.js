@@ -9,14 +9,24 @@
   var insertStartInput = document.getElementById('insert-start');
   var insertDryRunCb = document.getElementById('insert-dry-run');
   var insertSpeedInput = document.getElementById('insert-speed');
+  var silenceBtn = document.getElementById('silence-btn');
+  var silenceMinGapInput = document.getElementById('silence-min-gap');
+  var silenceSensitivityInput = document.getElementById('silence-sensitivity');
+  var silenceMinDurationInput = document.getElementById('silence-min-duration');
+  var silenceSpeedInput = document.getElementById('silence-speed');
   var cleanupSpeedInput = document.getElementById('cleanup-speed');
+  var cleanupBadOnlyCb = document.getElementById('cleanup-bad-only');
+  var cleanupIntervalGroup = document.getElementById('cleanup-interval-group');
+  var stopBtn = document.getElementById('stop-btn');
   var statusDot = document.getElementById('status-dot');
   var statusText = document.getElementById('status-text');
+  var previewEl = document.getElementById('preview');
   var summaryEl = document.getElementById('summary');
   var logArea = document.getElementById('log-area');
 
   var isReady = false;
   var activeTabId = null;
+  var isRunningNow = false;
 
   // ─── Tabs ────────────────────────────────────────────────────
 
@@ -29,8 +39,122 @@
         c.classList.remove('active');
       });
       document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      requestPreview();
     });
   });
+
+  // ─── Live Estimate ──────────────────────────────────────────
+
+  var previewToken = 0;
+  var previewDebounce = null;
+
+  function setPreview(text) {
+    previewEl.textContent = text || '';
+    previewEl.style.display = text ? 'block' : 'none';
+  }
+
+  function activeTabName() {
+    var active = document.querySelector('.tab.active');
+    return active ? active.dataset.tab : 'insert';
+  }
+
+  // Min silence duration is entered in seconds (1/4s steps) but the engine works
+  // in ms. Floor at 250ms.
+  function silenceMinMs() {
+    var s = parseFloat(silenceMinDurationInput.value);
+    if (isNaN(s)) s = 0.5;
+    return Math.max(Math.round(s * 1000), 250);
+  }
+
+  function buildPreviewConfig() {
+    var tab = activeTabName();
+    if (tab === 'silence') {
+      return {
+        kind: 'silence',
+        minGapSec: Math.max(parseInt(silenceMinGapInput.value, 10) || 300, 1),
+        tolerancePct: Math.min(Math.max(parseInt(silenceSensitivityInput.value, 10) || 25, 1), 100),
+        minSilenceMs: silenceMinMs(),
+      };
+    }
+    if (tab === 'cleanup') {
+      return {
+        kind: 'cleanup',
+        intervalSec: parseInt(intervalInput.value, 10) || 60,
+        badOnly: cleanupBadOnlyCb ? cleanupBadOnlyCb.checked : false,
+      };
+    }
+    return {
+      kind: 'insert',
+      intervalSec: Math.max(parseInt(insertIntervalInput.value, 10) || 60, 1),
+      startSec: (function () {
+        var n = parseInt(insertStartInput.value, 10);
+        return isNaN(n) ? 60 : Math.max(n, 0);
+      })(),
+    };
+  }
+
+  function requestPreview() {
+    if (!isReady || !activeTabId || isRunningNow) { setPreview(''); return; }
+    var config = buildPreviewConfig();
+    if (config.kind === 'silence') setPreview('Estimating…');
+    var token = ++previewToken;
+    chrome.tabs.sendMessage(activeTabId, { type: 'preview', config: config }, function (res) {
+      if (token !== previewToken) return; // a newer request superseded this one
+      if (chrome.runtime.lastError || !res || !res.ok) { setPreview(''); return; }
+      var noun = res.count === 1 ? 'ad slot' : 'ad slots';
+      var verb = res.action === 'remove' ? 'would be removed' : 'would be placed';
+      setPreview('≈ ' + res.count + ' ' + noun + ' ' + verb + ' with these settings');
+    });
+  }
+
+  function schedulePreview() {
+    clearTimeout(previewDebounce);
+    previewDebounce = setTimeout(requestPreview, 350);
+  }
+
+  // Re-estimate whenever a count-affecting input changes.
+  [
+    insertIntervalInput, insertStartInput,
+    silenceMinGapInput, silenceSensitivityInput, silenceMinDurationInput,
+    intervalInput, cleanupBadOnlyCb,
+  ].forEach(function (el) {
+    if (!el) return;
+    el.addEventListener('input', schedulePreview);
+    el.addEventListener('change', schedulePreview);
+  });
+
+  // ─── Speed seconds readout ──────────────────────────────────
+
+  var speedReadouts = [
+    [insertSpeedInput, document.getElementById('insert-speed-readout')],
+    [silenceSpeedInput, document.getElementById('silence-speed-readout')],
+    [cleanupSpeedInput, document.getElementById('cleanup-speed-readout')],
+  ];
+
+  function updateSpeedReadouts() {
+    speedReadouts.forEach(function (pair) {
+      var input = pair[0], out = pair[1];
+      if (!input || !out) return;
+      var ms = parseInt(input.value, 10);
+      out.textContent = isNaN(ms) ? '' : '= ' + (ms / 1000) + ' s';
+    });
+  }
+
+  speedReadouts.forEach(function (pair) {
+    if (pair[0]) pair[0].addEventListener('input', updateSpeedReadouts);
+  });
+  updateSpeedReadouts();
+
+  // ─── Cleanup control visibility ─────────────────────────────
+  // The interval only applies to a full cleanup, so hide it while
+  // "only remove flagged" is on (the default).
+  function syncCleanupControls() {
+    if (!cleanupIntervalGroup) return;
+    cleanupIntervalGroup.style.display =
+      (cleanupBadOnlyCb && cleanupBadOnlyCb.checked) ? 'none' : 'block';
+  }
+  if (cleanupBadOnlyCb) cleanupBadOnlyCb.addEventListener('change', syncCleanupControls);
+  syncCleanupControls();
 
   // ─── Status & Logging ───────────────────────────────────────
 
@@ -40,6 +164,9 @@
     statusText.textContent = text || (ready ? 'Ready' : 'Not ready');
     runBtn.disabled = !ready;
     insertBtn.disabled = !ready;
+    silenceBtn.disabled = !ready;
+    if (ready) schedulePreview();
+    else setPreview('');
   }
 
   function appendLog(text, level) {
@@ -62,16 +189,27 @@
   }
 
   function setButtonsRunning(running) {
+    isRunningNow = running;
+    if (running) setPreview('');
+    else schedulePreview();
     if (running) {
       runBtn.disabled = true;
       insertBtn.disabled = true;
+      silenceBtn.disabled = true;
       runBtn.textContent = 'Running...';
       insertBtn.textContent = 'Running...';
+      silenceBtn.textContent = 'Running...';
+      stopBtn.style.display = 'block';
+      stopBtn.disabled = false;
+      stopBtn.textContent = 'Stop';
     } else {
       runBtn.disabled = !isReady;
       insertBtn.disabled = !isReady;
+      silenceBtn.disabled = !isReady;
       runBtn.textContent = 'Run Cleanup';
       insertBtn.textContent = 'Insert Ad Slots';
+      silenceBtn.textContent = 'Insert Into Silence';
+      stopBtn.style.display = 'none';
     }
   }
 
@@ -178,6 +316,9 @@
     if (msg.type === 'summary') {
       showSummary(msg.found, msg.keeping, msg.deleting);
     }
+    if (msg.type === 'done') {
+      setButtonsRunning(false);
+    }
   });
 
   // ─── Cleanup Button ─────────────────────────────────────────
@@ -189,6 +330,7 @@
 
     var config = {
       intervalSec: parseInt(intervalInput.value, 10) || 60,
+      badOnly: cleanupBadOnlyCb ? cleanupBadOnlyCb.checked : false,
       dryRun: dryRunCb ? dryRunCb.checked : false,
       speedMs: parseInt(cleanupSpeedInput.value, 10) || 150,
     };
@@ -213,7 +355,10 @@
     var config = {
       durationSec: 0,
       intervalSec: Math.max(parseInt(insertIntervalInput.value, 10) || 60, 1),
-      startSec: parseInt(insertStartInput.value, 10) || 60,
+      startSec: (function () {
+        var n = parseInt(insertStartInput.value, 10);
+        return isNaN(n) ? 60 : Math.max(n, 0);
+      })(),
       dryRun: insertDryRunCb ? insertDryRunCb.checked : false,
       speedMs: parseInt(insertSpeedInput.value, 10) || 50,
     };
@@ -224,6 +369,44 @@
         appendLog('Failed to start: ' + errMsg, 'error');
         setButtonsRunning(false);
       }
+    });
+  });
+
+  // ─── Silence Button ─────────────────────────────────────────
+
+  silenceBtn.addEventListener('click', function () {
+    if (!isReady || !activeTabId) return;
+
+    setButtonsRunning(true);
+    clearLog();
+
+    var config = {
+      mode: 'silence',
+      minGapSec: Math.max(parseInt(silenceMinGapInput.value, 10) || 300, 1),
+      tolerancePct: Math.min(Math.max(parseInt(silenceSensitivityInput.value, 10) || 25, 1), 100),
+      minSilenceMs: silenceMinMs(),
+      dryRun: false,
+      speedMs: parseInt(silenceSpeedInput.value, 10) || 50,
+    };
+
+    chrome.tabs.sendMessage(activeTabId, { type: 'insert', config: config }, function (response) {
+      if (chrome.runtime.lastError || !response || !response.started) {
+        var errMsg = response ? response.reason : (chrome.runtime.lastError ? chrome.runtime.lastError.message : 'no response');
+        appendLog('Failed to start: ' + errMsg, 'error');
+        setButtonsRunning(false);
+      }
+    });
+  });
+
+  // ─── Stop Button ────────────────────────────────────────────
+
+  stopBtn.addEventListener('click', function () {
+    if (!activeTabId) return;
+    stopBtn.disabled = true;
+    stopBtn.textContent = 'Stopping…';
+    chrome.tabs.sendMessage(activeTabId, { type: 'stop' }, function () {
+      // Ignore errors; the run also emits 'done' which restores the buttons.
+      void chrome.runtime.lastError;
     });
   });
 

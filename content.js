@@ -20,11 +20,19 @@
   window.__midRollAlive = function () { return selfRuntimeValid(); };
 
   var PREFIX = '[MidRollMgr]';
+  var VERSION = (function () {
+    try { return chrome.runtime.getManifest().version; } catch (_) { return '?'; }
+  })();
 
   // Run state lives on window so a stray second instance (during a re-injection
   // race) can never start a concurrent run/insert.
   function isRunning() { return !!window.__midRollRunning; }
   function setRunning(v) { window.__midRollRunning = !!v; }
+
+  // Cooperative cancellation: a 'stop' message flips this, and the insert/delete
+  // loops check it between iterations to bail out cleanly.
+  function isCancelled() { return !!window.__midRollCancel; }
+  function setCancel(v) { window.__midRollCancel = !!v; }
 
   // ─── Utilities ───────────────────────────────────────────────
 
@@ -156,14 +164,29 @@
       sendResponse(checkReadiness());
       return;
     }
+    if (msg.type === 'preview') {
+      computePreview(msg.config)
+        .then(function (res) { sendResponse(res || { ok: false }); })
+        .catch(function () { sendResponse({ ok: false }); });
+      return true; // async response
+    }
+    if (msg.type === 'stop') {
+      setCancel(true);
+      sendResponse({ stopped: true });
+      return;
+    }
     if (msg.type === 'run') {
       if (isRunning()) {
         sendResponse({ started: false, reason: 'Already running' });
         return;
       }
       setRunning(true);
+      setCancel(false);
       sendResponse({ started: true });
-      runOptimizer(msg.config).finally(function () { setRunning(false); });
+      runOptimizer(msg.config).finally(function () {
+        setRunning(false);
+        safeSendMessage({ type: 'done' });
+      });
       return true;
     }
     if (msg.type === 'insert') {
@@ -172,18 +195,23 @@
         return;
       }
       setRunning(true);
+      setCancel(false);
       sendResponse({ started: true });
-      runInsert(msg.config).finally(function () { setRunning(false); });
+      runInsert(msg.config).finally(function () {
+        setRunning(false);
+        safeSendMessage({ type: 'done' });
+      });
       return true;
     }
   });
 
   // ─── Phase A: Read All Rows ──────────────────────────────────
 
-  function phaseA() {
-    log('Phase A: Reading ad break rows...');
+  function phaseA(quiet) {
+    function plog(t, l) { if (!quiet) log(t, l); }
+    plog('Phase A: Reading ad break rows...');
     var panel = document.querySelector(SEL.panel);
-    if (!panel) { log('Panel not found', 'error'); return []; }
+    if (!panel) { plog('Panel not found', 'error'); return []; }
 
     var rows = panel.querySelectorAll(SEL.row);
     var result = [];
@@ -220,7 +248,7 @@
       });
     }
 
-    log('Phase A: Found ' + result.length + ' ad slots (' +
+    plog('Phase A: Found ' + result.length + ' ad slots (' +
       result.filter(function (r) { return r.type === 'manual'; }).length + ' manual, ' +
       result.filter(function (r) { return r.type === 'automatic'; }).length + ' automatic, ' +
       result.filter(function (r) { return r.isWarning; }).length + ' warnings)');
@@ -230,10 +258,33 @@
 
   // ─── Phase B: Filter ─────────────────────────────────────────
 
-  function phaseB(slots, intervalSec) {
-    log('Phase B: Filtering (interval=' + intervalSec + 's)...');
-
+  function phaseB(slots, intervalSec, badOnly, quiet) {
+    function plog(t, l) { if (!quiet) log(t, l); }
+    function psummary(m) { if (!quiet) safeSendMessage(m); }
     slots.sort(function (a, b) { return a.timeSec - b.timeSec; });
+
+    // Bad-only: remove just the slots flagged "unlikely to show ads" (and never
+    // automatics), leaving every other manual placement untouched. Used after a
+    // silence pass to prune only the slots YouTube flagged.
+    if (badOnly) {
+      plog('Phase B: Filtering (flagged/bad slots only)...');
+      var keepB = [];
+      var removeB = [];
+      for (var bi = 0; bi < slots.length; bi++) {
+        var sb = slots[bi];
+        if (sb.isWarning && sb.type !== 'automatic') {
+          removeB.push(sb);
+          plog('  ' + sb.tsDisplay + ' — REMOVE (flagged)');
+        } else {
+          keepB.push(sb);
+        }
+      }
+      plog('Phase B: Keeping ' + keepB.length + ', removing ' + removeB.length);
+      psummary({ type: 'summary', found: slots.length, keeping: keepB.length, deleting: removeB.length });
+      return { keep: keepB, remove: removeB };
+    }
+
+    plog('Phase B: Filtering (interval=' + intervalSec + 's)...');
 
     var autoTimes = [];
     for (var a = 0; a < slots.length; a++) {
@@ -257,13 +308,13 @@
 
       if (s.type === 'automatic') {
         keep.push(s);
-        log('  ' + s.tsDisplay + ' — KEEP (automatic)');
+        plog('  ' + s.tsDisplay + ' — KEEP (automatic)');
         continue;
       }
 
       if (s.isWarning) {
         remove.push(s);
-        log('  ' + s.tsDisplay + ' — REMOVE (warning)');
+        plog('  ' + s.tsDisplay + ' — REMOVE (warning)');
         continue;
       }
 
@@ -271,28 +322,28 @@
         var nearAuto = tooCloseToAuto(t);
         if (nearAuto !== null) {
           remove.push(s);
-          log('  ' + s.tsDisplay + ' — REMOVE (too close to automatic at ' + formatTime(nearAuto) + ')');
+          plog('  ' + s.tsDisplay + ' — REMOVE (too close to automatic at ' + formatTime(nearAuto) + ')');
           continue;
         }
 
         var delta = t - lastKeptManualTime;
         if (Math.round(delta) < intervalSec) {
           remove.push(s);
-          log('  ' + s.tsDisplay + ' — REMOVE (too close: ' + Math.round(delta) + 's < ' + intervalSec + 's)');
+          plog('  ' + s.tsDisplay + ' — REMOVE (too close: ' + Math.round(delta) + 's < ' + intervalSec + 's)');
         } else {
           keep.push(s);
           lastKeptManualTime = t;
-          log('  ' + s.tsDisplay + ' — KEEP (manual, gap=' + Math.round(delta) + 's)');
+          plog('  ' + s.tsDisplay + ' — KEEP (manual, gap=' + Math.round(delta) + 's)');
         }
         continue;
       }
 
       keep.push(s);
-      log('  ' + s.tsDisplay + ' — KEEP (unknown type)');
+      plog('  ' + s.tsDisplay + ' — KEEP (unknown type)');
     }
 
-    log('Phase B: Keeping ' + keep.length + ', removing ' + remove.length);
-    safeSendMessage({
+    plog('Phase B: Keeping ' + keep.length + ', removing ' + remove.length);
+    psummary({
       type: 'summary',
       found: slots.length,
       keeping: keep.length,
@@ -333,6 +384,10 @@
     var deleted = 0;
 
     for (var i = 0; i < toRemove.length; i++) {
+      if (isCancelled()) {
+        log('Stopped by user — deleted ' + deleted + ' of ' + toRemove.length, 'warn');
+        break;
+      }
       var s = toRemove[i];
 
       try {
@@ -384,7 +439,7 @@
     var slots = phaseA();
     if (slots.length === 0) { log('No slots to process'); return; }
 
-    var filtered = phaseB(slots, config.intervalSec || 60);
+    var filtered = phaseB(slots, config.intervalSec || 60, config.badOnly);
     if (filtered.remove.length === 0) {
       log('Nothing to remove — all slots pass filter');
       return;
@@ -394,8 +449,12 @@
   }
 
   async function runOptimizer(config) {
-    log('=== Starting optimizer ===');
-    log('Config: interval=' + config.intervalSec + 's, dryRun=' + config.dryRun + ', speed=' + config.speedMs + 'ms');
+    log('=== Starting optimizer (v' + VERSION + ') ===');
+    if (config.badOnly) {
+      log('Config: remove flagged/bad slots only, dryRun=' + config.dryRun + ', speed=' + config.speedMs + 'ms');
+    } else {
+      log('Config: interval=' + config.intervalSec + 's, dryRun=' + config.dryRun + ', speed=' + config.speedMs + 'ms');
+    }
 
     try {
       await runOptimizerInternal(config);
@@ -449,9 +508,104 @@
     return await seekPlayheadOnce(sec);
   }
 
+  // Ask the page bridge to reduce Studio's audio waveform to silent segments.
+  // Resolves to { success, segments:[{startSec,endSec}], info }.
+  function analyzeAudio(opts) {
+    return new Promise(function (resolve) {
+      function onResult(e) {
+        if (e.detail.type !== 'analyzeAudio') return;
+        document.removeEventListener('ytadopt-result', onResult);
+        resolve({
+          success: e.detail.success,
+          segments: e.detail.value || [],
+          info: e.detail.info,
+        });
+      }
+      document.addEventListener('ytadopt-result', onResult);
+
+      document.dispatchEvent(new CustomEvent('ytadopt-analyzeAudio', {
+        detail: {
+          tolerancePct: opts.tolerancePct,
+          minSilenceMs: opts.minSilenceMs,
+        }
+      }));
+
+      setTimeout(function () {
+        document.removeEventListener('ytadopt-result', onResult);
+        resolve({ success: false, segments: [], info: 'audio analysis timed out' });
+      }, 6000); // headroom over the bridge's waveform-load retries (~4s)
+    });
+  }
+
+  // Greedily place one ad at the midpoint of a silent segment, then require at
+  // least minGapSec before the next, walking segments in time order. This caps
+  // the count predictably and lands every ad inside a detected silence.
+  function pickSilencesWithSpacing(segments, minGapSec) {
+    var mids = segments
+      .map(function (s) { return (s.startSec + s.endSec) / 2; })
+      .sort(function (a, b) { return a - b; });
+    var picked = [];
+    var last = -Infinity;
+    for (var i = 0; i < mids.length; i++) {
+      if (mids[i] - last >= minGapSec) {
+        picked.push(Math.round(mids[i]));
+        last = mids[i];
+      }
+    }
+    return picked;
+  }
+
+  // Non-destructive count of what an action would do with the given settings,
+  // for the popup's live estimate. Reuses the real placement/filter logic
+  // (phaseA/phaseB, analyzeAudio, pickSilencesWithSpacing) in quiet mode so the
+  // preview can never drift from what running actually does.
+  async function computePreview(config) {
+    if (!document.querySelector(SEL.panel)) return { ok: false };
+
+    if (config.kind === 'cleanup') {
+      var slots = phaseA(true);
+      if (!slots.length) return { ok: true, action: 'remove', count: 0 };
+      var filtered = phaseB(slots, config.intervalSec || 60, config.badOnly, true);
+      return { ok: true, action: 'remove', count: filtered.remove.length };
+    }
+
+    var endSec = getVideoDurationSec();
+    if (endSec <= 0) return { ok: false };
+    var existing = getExistingTimesSet();
+
+    if (config.kind === 'silence') {
+      var analysis = await analyzeAudio({
+        tolerancePct: config.tolerancePct,
+        minSilenceMs: config.minSilenceMs,
+      });
+      if (!analysis.success) return { ok: false, info: analysis.info };
+      var picked = pickSilencesWithSpacing(analysis.segments, config.minGapSec);
+      var sc = 0;
+      for (var i = 0; i < picked.length; i++) {
+        if (picked[i] < endSec && !existing.has(picked[i])) sc++;
+      }
+      return { ok: true, action: 'place', count: sc };
+    }
+
+    // insert
+    if (!(config.intervalSec > 0)) return { ok: false };
+    var startSec = config.startSec >= 0 ? config.startSec : 0;
+    var ic = 0;
+    for (var t = startSec; t < endSec; t += config.intervalSec) {
+      if (!existing.has(Math.round(t))) ic++;
+    }
+    return { ok: true, action: 'place', count: ic };
+  }
+
   async function runInsert(config) {
-    log('=== Starting insert ===');
-    log('Config: every ' + config.intervalSec + 's, starting at ' + config.startSec + 's, dryRun=' + config.dryRun);
+    var silenceMode = config.mode === 'silence';
+    log('=== Starting ' + (silenceMode ? 'silence insert' : 'insert') + ' (v' + VERSION + ') ===');
+    if (silenceMode) {
+      log('Config: place in silence, min gap=' + config.minGapSec + 's, sensitivity=' +
+        config.tolerancePct + '%, minSilence=' + config.minSilenceMs + 'ms');
+    } else {
+      log('Config: every ' + config.intervalSec + 's, starting at ' + config.startSec + 's, dryRun=' + config.dryRun);
+    }
 
     try {
       var existingTimes = getExistingTimesSet();
@@ -492,10 +646,27 @@
       log('Video duration: ' + formatTime(endSec));
 
       var timesToInsert = [];
-      for (var t = config.startSec; t < endSec; t += config.intervalSec) {
-        var rounded = Math.round(t);
-        if (!existingTimes.has(rounded)) {
-          timesToInsert.push(rounded);
+      if (silenceMode) {
+        var analysis = await analyzeAudio({
+          tolerancePct: config.tolerancePct,
+          minSilenceMs: config.minSilenceMs,
+        });
+        if (!analysis.success) {
+          log('Audio analysis failed: ' + (analysis.info || 'unknown'), 'error');
+          log('=== Complete ===');
+          return;
+        }
+        log('Found ' + analysis.segments.length + ' silent segments');
+        var picked = pickSilencesWithSpacing(analysis.segments, config.minGapSec);
+        for (var si = 0; si < picked.length; si++) {
+          if (picked[si] < endSec && !existingTimes.has(picked[si])) timesToInsert.push(picked[si]);
+        }
+      } else {
+        for (var t = config.startSec; t < endSec; t += config.intervalSec) {
+          var rounded = Math.round(t);
+          if (!existingTimes.has(rounded)) {
+            timesToInsert.push(rounded);
+          }
         }
       }
 
@@ -518,6 +689,10 @@
 
       var inserted = 0;
       for (var k = 0; k < timesToInsert.length; k++) {
+        if (isCancelled()) {
+          log('Stopped by user — inserted ' + inserted + ' of ' + timesToInsert.length, 'warn');
+          break;
+        }
         var sec = timesToInsert[k];
         var framestamp = secsToFramestamp(sec);
 
