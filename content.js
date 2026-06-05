@@ -164,6 +164,12 @@
       sendResponse(checkReadiness());
       return;
     }
+    if (msg.type === 'preview') {
+      computePreview(msg.config)
+        .then(function (res) { sendResponse(res || { ok: false }); })
+        .catch(function () { sendResponse({ ok: false }); });
+      return true; // async response
+    }
     if (msg.type === 'stop') {
       setCancel(true);
       sendResponse({ stopped: true });
@@ -201,10 +207,11 @@
 
   // ─── Phase A: Read All Rows ──────────────────────────────────
 
-  function phaseA() {
-    log('Phase A: Reading ad break rows...');
+  function phaseA(quiet) {
+    function plog(t, l) { if (!quiet) log(t, l); }
+    plog('Phase A: Reading ad break rows...');
     var panel = document.querySelector(SEL.panel);
-    if (!panel) { log('Panel not found', 'error'); return []; }
+    if (!panel) { plog('Panel not found', 'error'); return []; }
 
     var rows = panel.querySelectorAll(SEL.row);
     var result = [];
@@ -241,7 +248,7 @@
       });
     }
 
-    log('Phase A: Found ' + result.length + ' ad slots (' +
+    plog('Phase A: Found ' + result.length + ' ad slots (' +
       result.filter(function (r) { return r.type === 'manual'; }).length + ' manual, ' +
       result.filter(function (r) { return r.type === 'automatic'; }).length + ' automatic, ' +
       result.filter(function (r) { return r.isWarning; }).length + ' warnings)');
@@ -251,31 +258,33 @@
 
   // ─── Phase B: Filter ─────────────────────────────────────────
 
-  function phaseB(slots, intervalSec, badOnly) {
+  function phaseB(slots, intervalSec, badOnly, quiet) {
+    function plog(t, l) { if (!quiet) log(t, l); }
+    function psummary(m) { if (!quiet) safeSendMessage(m); }
     slots.sort(function (a, b) { return a.timeSec - b.timeSec; });
 
     // Bad-only: remove just the slots flagged "unlikely to show ads" (and never
     // automatics), leaving every other manual placement untouched. Used after a
     // silence pass to prune only the slots YouTube flagged.
     if (badOnly) {
-      log('Phase B: Filtering (flagged/bad slots only)...');
+      plog('Phase B: Filtering (flagged/bad slots only)...');
       var keepB = [];
       var removeB = [];
       for (var bi = 0; bi < slots.length; bi++) {
         var sb = slots[bi];
         if (sb.isWarning && sb.type !== 'automatic') {
           removeB.push(sb);
-          log('  ' + sb.tsDisplay + ' — REMOVE (flagged)');
+          plog('  ' + sb.tsDisplay + ' — REMOVE (flagged)');
         } else {
           keepB.push(sb);
         }
       }
-      log('Phase B: Keeping ' + keepB.length + ', removing ' + removeB.length);
-      safeSendMessage({ type: 'summary', found: slots.length, keeping: keepB.length, deleting: removeB.length });
+      plog('Phase B: Keeping ' + keepB.length + ', removing ' + removeB.length);
+      psummary({ type: 'summary', found: slots.length, keeping: keepB.length, deleting: removeB.length });
       return { keep: keepB, remove: removeB };
     }
 
-    log('Phase B: Filtering (interval=' + intervalSec + 's)...');
+    plog('Phase B: Filtering (interval=' + intervalSec + 's)...');
 
     var autoTimes = [];
     for (var a = 0; a < slots.length; a++) {
@@ -299,13 +308,13 @@
 
       if (s.type === 'automatic') {
         keep.push(s);
-        log('  ' + s.tsDisplay + ' — KEEP (automatic)');
+        plog('  ' + s.tsDisplay + ' — KEEP (automatic)');
         continue;
       }
 
       if (s.isWarning) {
         remove.push(s);
-        log('  ' + s.tsDisplay + ' — REMOVE (warning)');
+        plog('  ' + s.tsDisplay + ' — REMOVE (warning)');
         continue;
       }
 
@@ -313,28 +322,28 @@
         var nearAuto = tooCloseToAuto(t);
         if (nearAuto !== null) {
           remove.push(s);
-          log('  ' + s.tsDisplay + ' — REMOVE (too close to automatic at ' + formatTime(nearAuto) + ')');
+          plog('  ' + s.tsDisplay + ' — REMOVE (too close to automatic at ' + formatTime(nearAuto) + ')');
           continue;
         }
 
         var delta = t - lastKeptManualTime;
         if (Math.round(delta) < intervalSec) {
           remove.push(s);
-          log('  ' + s.tsDisplay + ' — REMOVE (too close: ' + Math.round(delta) + 's < ' + intervalSec + 's)');
+          plog('  ' + s.tsDisplay + ' — REMOVE (too close: ' + Math.round(delta) + 's < ' + intervalSec + 's)');
         } else {
           keep.push(s);
           lastKeptManualTime = t;
-          log('  ' + s.tsDisplay + ' — KEEP (manual, gap=' + Math.round(delta) + 's)');
+          plog('  ' + s.tsDisplay + ' — KEEP (manual, gap=' + Math.round(delta) + 's)');
         }
         continue;
       }
 
       keep.push(s);
-      log('  ' + s.tsDisplay + ' — KEEP (unknown type)');
+      plog('  ' + s.tsDisplay + ' — KEEP (unknown type)');
     }
 
-    log('Phase B: Keeping ' + keep.length + ', removing ' + remove.length);
-    safeSendMessage({
+    plog('Phase B: Keeping ' + keep.length + ', removing ' + remove.length);
+    psummary({
       type: 'summary',
       found: slots.length,
       keeping: keep.length,
@@ -544,6 +553,48 @@
       }
     }
     return picked;
+  }
+
+  // Non-destructive count of what an action would do with the given settings,
+  // for the popup's live estimate. Reuses the real placement/filter logic
+  // (phaseA/phaseB, analyzeAudio, pickSilencesWithSpacing) in quiet mode so the
+  // preview can never drift from what running actually does.
+  async function computePreview(config) {
+    if (!document.querySelector(SEL.panel)) return { ok: false };
+
+    if (config.kind === 'cleanup') {
+      var slots = phaseA(true);
+      if (!slots.length) return { ok: true, action: 'remove', count: 0 };
+      var filtered = phaseB(slots, config.intervalSec || 60, config.badOnly, true);
+      return { ok: true, action: 'remove', count: filtered.remove.length };
+    }
+
+    var endSec = getVideoDurationSec();
+    if (endSec <= 0) return { ok: false };
+    var existing = getExistingTimesSet();
+
+    if (config.kind === 'silence') {
+      var analysis = await analyzeAudio({
+        tolerancePct: config.tolerancePct,
+        minSilenceMs: config.minSilenceMs,
+      });
+      if (!analysis.success) return { ok: false, info: analysis.info };
+      var picked = pickSilencesWithSpacing(analysis.segments, config.minGapSec);
+      var sc = 0;
+      for (var i = 0; i < picked.length; i++) {
+        if (picked[i] < endSec && !existing.has(picked[i])) sc++;
+      }
+      return { ok: true, action: 'place', count: sc };
+    }
+
+    // insert
+    if (!(config.intervalSec > 0)) return { ok: false };
+    var startSec = config.startSec >= 0 ? config.startSec : 0;
+    var ic = 0;
+    for (var t = startSec; t < endSec; t += config.intervalSec) {
+      if (!existing.has(Math.round(t))) ic++;
+    }
+    return { ok: true, action: 'place', count: ic };
   }
 
   async function runInsert(config) {

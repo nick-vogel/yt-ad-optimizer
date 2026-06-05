@@ -19,11 +19,13 @@
   var stopBtn = document.getElementById('stop-btn');
   var statusDot = document.getElementById('status-dot');
   var statusText = document.getElementById('status-text');
+  var previewEl = document.getElementById('preview');
   var summaryEl = document.getElementById('summary');
   var logArea = document.getElementById('log-area');
 
   var isReady = false;
   var activeTabId = null;
+  var isRunningNow = false;
 
   // ─── Tabs ────────────────────────────────────────────────────
 
@@ -36,7 +38,80 @@
         c.classList.remove('active');
       });
       document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      requestPreview();
     });
+  });
+
+  // ─── Live Estimate ──────────────────────────────────────────
+
+  var previewToken = 0;
+  var previewDebounce = null;
+
+  function setPreview(text) {
+    previewEl.textContent = text || '';
+    previewEl.style.display = text ? 'block' : 'none';
+  }
+
+  function activeTabName() {
+    var active = document.querySelector('.tab.active');
+    return active ? active.dataset.tab : 'insert';
+  }
+
+  function buildPreviewConfig() {
+    var tab = activeTabName();
+    if (tab === 'silence') {
+      return {
+        kind: 'silence',
+        minGapSec: Math.max(parseInt(silenceMinGapInput.value, 10) || 300, 1),
+        tolerancePct: Math.min(Math.max(parseInt(silenceSensitivityInput.value, 10) || 25, 1), 100),
+        minSilenceMs: Math.max(parseInt(silenceMinDurationInput.value, 10) || 500, 100),
+      };
+    }
+    if (tab === 'cleanup') {
+      return {
+        kind: 'cleanup',
+        intervalSec: parseInt(intervalInput.value, 10) || 60,
+        badOnly: cleanupBadOnlyCb ? cleanupBadOnlyCb.checked : false,
+      };
+    }
+    return {
+      kind: 'insert',
+      intervalSec: Math.max(parseInt(insertIntervalInput.value, 10) || 60, 1),
+      startSec: (function () {
+        var n = parseInt(insertStartInput.value, 10);
+        return isNaN(n) ? 60 : Math.max(n, 0);
+      })(),
+    };
+  }
+
+  function requestPreview() {
+    if (!isReady || !activeTabId || isRunningNow) { setPreview(''); return; }
+    var config = buildPreviewConfig();
+    if (config.kind === 'silence') setPreview('Estimating…');
+    var token = ++previewToken;
+    chrome.tabs.sendMessage(activeTabId, { type: 'preview', config: config }, function (res) {
+      if (token !== previewToken) return; // a newer request superseded this one
+      if (chrome.runtime.lastError || !res || !res.ok) { setPreview(''); return; }
+      var noun = res.count === 1 ? 'ad slot' : 'ad slots';
+      var verb = res.action === 'remove' ? 'would be removed' : 'would be placed';
+      setPreview('≈ ' + res.count + ' ' + noun + ' ' + verb + ' with these settings');
+    });
+  }
+
+  function schedulePreview() {
+    clearTimeout(previewDebounce);
+    previewDebounce = setTimeout(requestPreview, 350);
+  }
+
+  // Re-estimate whenever a count-affecting input changes.
+  [
+    insertIntervalInput, insertStartInput,
+    silenceMinGapInput, silenceSensitivityInput, silenceMinDurationInput,
+    intervalInput, cleanupBadOnlyCb,
+  ].forEach(function (el) {
+    if (!el) return;
+    el.addEventListener('input', schedulePreview);
+    el.addEventListener('change', schedulePreview);
   });
 
   // ─── Status & Logging ───────────────────────────────────────
@@ -48,6 +123,8 @@
     runBtn.disabled = !ready;
     insertBtn.disabled = !ready;
     silenceBtn.disabled = !ready;
+    if (ready) schedulePreview();
+    else setPreview('');
   }
 
   function appendLog(text, level) {
@@ -70,6 +147,9 @@
   }
 
   function setButtonsRunning(running) {
+    isRunningNow = running;
+    if (running) setPreview('');
+    else schedulePreview();
     if (running) {
       runBtn.disabled = true;
       insertBtn.disabled = true;

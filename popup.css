@@ -54,6 +54,19 @@ h2 {
   color: #aaa;
 }
 
+#preview {
+  display: none;
+  margin-top: -8px;
+  margin-bottom: 14px;
+  padding: 7px 10px;
+  background: #14271a;
+  border: 1px solid #2ea043;
+  border-radius: 6px;
+  color: #5fd47a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .control-group {
   margin-bottom: 10px;
 }
