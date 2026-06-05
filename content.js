@@ -533,7 +533,7 @@
       setTimeout(function () {
         document.removeEventListener('ytadopt-result', onResult);
         resolve({ success: false, segments: [], info: 'audio analysis timed out' });
-      }, 5000);
+      }, 6000); // headroom over the bridge's waveform-load retries (~4s)
     });
   }
 

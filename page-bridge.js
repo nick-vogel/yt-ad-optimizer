@@ -88,29 +88,43 @@
       responded = true;
       try { respond('analyzeAudio', success, info, value); } catch (_) {}
     }
-    try {
-      var opts = e.detail || {};
-      var tolerancePct = opts.tolerancePct > 0 ? opts.tolerancePct : 25;
-      var minSilenceMs = opts.minSilenceMs > 0 ? opts.minSilenceMs : 500;
-      var windowMs = opts.windowMs > 0 ? opts.windowMs : 100;
 
-      var wf = document.querySelector('ytve-audio-waveform');
-      var data = wf && wf.audioWaveformData;
-      if (!data || !data.length) {
-        safeRespond(false, 'audio waveform data not available — open the editor with audio loaded');
-        return;
+    var opts = e.detail || {};
+    var tolerancePct = opts.tolerancePct > 0 ? opts.tolerancePct : 25;
+    var minSilenceMs = opts.minSilenceMs > 0 ? opts.minSilenceMs : 500;
+    var windowMs = opts.windowMs > 0 ? opts.windowMs : 100;
+
+    // audioWaveformData is populated asynchronously after the editor opens (and
+    // can lag on freshly-processed unlisted/draft videos). Poll briefly rather
+    // than failing on the first miss. Stays under the content script's timeout.
+    var attempts = 0;
+    var MAX_ATTEMPTS = 8;   // ~4s at 500ms
+    var RETRY_MS = 500;
+
+    function attempt() {
+      try {
+        var wf = document.querySelector('ytve-audio-waveform');
+        var data = wf && wf.audioWaveformData;
+        var durationSec = getDurationMs() / 1000;
+
+        if (!data || !data.length || !(durationSec > 0)) {
+          if (++attempts < MAX_ATTEMPTS) { setTimeout(attempt, RETRY_MS); return; }
+          if (!(durationSec > 0)) {
+            safeRespond(false, 'could not determine video duration');
+          } else {
+            safeRespond(false, 'audio waveform still loading — wait a few seconds after the editor opens, then try again');
+          }
+          return;
+        }
+
+        var env = envelopeFromSamples(data, durationSec, windowMs);
+        var segments = envelopeToSilence(env, durationSec, tolerancePct, minSilenceMs);
+        safeRespond(true, segments.length + ' silent segments', segments);
+      } catch (err) {
+        safeRespond(false, (err && err.message) || 'unknown error');
       }
-      var durationSec = getDurationMs() / 1000;
-      if (!(durationSec > 0)) {
-        safeRespond(false, 'could not determine video duration');
-        return;
-      }
-      var env = envelopeFromSamples(data, durationSec, windowMs);
-      var segments = envelopeToSilence(env, durationSec, tolerancePct, minSilenceMs);
-      safeRespond(true, segments.length + ' silent segments', segments);
-    } catch (err) {
-      safeRespond(false, (err && err.message) || 'unknown error');
     }
+    attempt();
   });
 
   // Listen for playhead seek requests from the content script.
