@@ -31,7 +31,7 @@
       </div>
 
       <div class="control-group">
-        <label for="insert-speed">Speed (ms)</label>
+        <label for="insert-speed">Speed (ms) <span class="readout" id="insert-speed-readout"></span></label>
         <input type="number" id="insert-speed" value="50" min="50" max="2000" step="50" />
       </div>
 
@@ -50,16 +50,16 @@
         <label for="silence-sensitivity">Silence sensitivity (%)</label>
         <input type="number" id="silence-sensitivity" value="25" min="1" max="100" step="1" />
       </div>
-      <div class="speed-hint">Higher detects more (and subtler) quiet moments → more candidate spots. Lower only counts near-total silence → fewer.</div>
+      <div class="speed-hint">Lower → fewer ads (only near-total silence counts); higher → more ads (subtler quiet moments count too).</div>
 
       <div class="control-group">
-        <label for="silence-min-duration">Min silence duration (ms)</label>
-        <input type="number" id="silence-min-duration" value="500" min="100" max="10000" step="100" />
+        <label for="silence-min-duration">Min silence duration (seconds)</label>
+        <input type="number" id="silence-min-duration" value="0.5" min="0.25" max="10" step="0.25" />
       </div>
       <div class="speed-hint">How long a quiet stretch must last to qualify as a usable gap.</div>
 
       <div class="control-group">
-        <label for="silence-speed">Speed (ms)</label>
+        <label for="silence-speed">Speed (ms) <span class="readout" id="silence-speed-readout"></span></label>
         <input type="number" id="silence-speed" value="50" min="50" max="2000" step="50" />
       </div>
 
@@ -79,7 +79,7 @@
       </div>
 
       <div class="control-group">
-        <label for="cleanup-speed">Speed (ms)</label>
+        <label for="cleanup-speed">Speed (ms) <span class="readout" id="cleanup-speed-readout"></span></label>
         <input type="number" id="cleanup-speed" value="50" min="50" max="2000" step="50" />
       </div>
 

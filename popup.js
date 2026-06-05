@@ -57,6 +57,14 @@
     return active ? active.dataset.tab : 'insert';
   }
 
+  // Min silence duration is entered in seconds (1/4s steps) but the engine works
+  // in ms. Floor at 250ms.
+  function silenceMinMs() {
+    var s = parseFloat(silenceMinDurationInput.value);
+    if (isNaN(s)) s = 0.5;
+    return Math.max(Math.round(s * 1000), 250);
+  }
+
   function buildPreviewConfig() {
     var tab = activeTabName();
     if (tab === 'silence') {
@@ -64,7 +72,7 @@
         kind: 'silence',
         minGapSec: Math.max(parseInt(silenceMinGapInput.value, 10) || 300, 1),
         tolerancePct: Math.min(Math.max(parseInt(silenceSensitivityInput.value, 10) || 25, 1), 100),
-        minSilenceMs: Math.max(parseInt(silenceMinDurationInput.value, 10) || 500, 100),
+        minSilenceMs: silenceMinMs(),
       };
     }
     if (tab === 'cleanup') {
@@ -113,6 +121,28 @@
     el.addEventListener('input', schedulePreview);
     el.addEventListener('change', schedulePreview);
   });
+
+  // ─── Speed seconds readout ──────────────────────────────────
+
+  var speedReadouts = [
+    [insertSpeedInput, document.getElementById('insert-speed-readout')],
+    [silenceSpeedInput, document.getElementById('silence-speed-readout')],
+    [cleanupSpeedInput, document.getElementById('cleanup-speed-readout')],
+  ];
+
+  function updateSpeedReadouts() {
+    speedReadouts.forEach(function (pair) {
+      var input = pair[0], out = pair[1];
+      if (!input || !out) return;
+      var ms = parseInt(input.value, 10);
+      out.textContent = isNaN(ms) ? '' : '= ' + (ms / 1000) + ' s';
+    });
+  }
+
+  speedReadouts.forEach(function (pair) {
+    if (pair[0]) pair[0].addEventListener('input', updateSpeedReadouts);
+  });
+  updateSpeedReadouts();
 
   // ─── Status & Logging ───────────────────────────────────────
 
@@ -342,7 +372,7 @@
       mode: 'silence',
       minGapSec: Math.max(parseInt(silenceMinGapInput.value, 10) || 300, 1),
       tolerancePct: Math.min(Math.max(parseInt(silenceSensitivityInput.value, 10) || 25, 1), 100),
-      minSilenceMs: Math.max(parseInt(silenceMinDurationInput.value, 10) || 500, 100),
+      minSilenceMs: silenceMinMs(),
       dryRun: false,
       speedMs: parseInt(silenceSpeedInput.value, 10) || 50,
     };

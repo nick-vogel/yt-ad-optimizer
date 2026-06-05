@@ -79,6 +79,11 @@ h2 {
   cursor: pointer;
 }
 
+.readout {
+  color: #888;
+  font-weight: 400;
+}
+
 .control-group input[type='text'],
 .control-group input[type='number'] {
   width: 100%;
