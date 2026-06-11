@@ -160,6 +160,7 @@ h2 {
 
 #run-btn,
 #insert-btn,
+#endpoints-btn,
 #silence-btn {
   width: 100%;
   padding: 10px;
@@ -177,12 +178,14 @@ h2 {
 
 #run-btn:hover:not(:disabled),
 #insert-btn:hover:not(:disabled),
+#endpoints-btn:hover:not(:disabled),
 #silence-btn:hover:not(:disabled) {
   opacity: 0.9;
 }
 
 #run-btn:disabled,
 #insert-btn:disabled,
+#endpoints-btn:disabled,
 #silence-btn:disabled {
   background: #555;
   color: #888;
