@@ -9,7 +9,9 @@
   var insertStartInput = document.getElementById('insert-start');
   var insertDryRunCb = document.getElementById('insert-dry-run');
   var insertSpeedInput = document.getElementById('insert-speed');
+  var endpointsBtn = document.getElementById('endpoints-btn');
   var silenceBtn = document.getElementById('silence-btn');
+  var silenceAddEndpointsCb = document.getElementById('silence-add-endpoints');
   var silenceMinGapInput = document.getElementById('silence-min-gap');
   var silenceSensitivityInput = document.getElementById('silence-sensitivity');
   var silenceMinDurationInput = document.getElementById('silence-min-duration');
@@ -74,6 +76,7 @@
         minGapSec: Math.max(parseInt(silenceMinGapInput.value, 10) || 300, 1),
         tolerancePct: Math.min(Math.max(parseInt(silenceSensitivityInput.value, 10) || 25, 1), 100),
         minSilenceMs: silenceMinMs(),
+        addEndpoints: silenceAddEndpointsCb ? silenceAddEndpointsCb.checked : true,
       };
     }
     if (tab === 'cleanup') {
@@ -116,6 +119,7 @@
   [
     insertIntervalInput, insertStartInput,
     silenceMinGapInput, silenceSensitivityInput, silenceMinDurationInput,
+    silenceAddEndpointsCb,
     intervalInput, cleanupBadOnlyCb,
   ].forEach(function (el) {
     if (!el) return;
@@ -164,6 +168,7 @@
     statusText.textContent = text || (ready ? 'Ready' : 'Not ready');
     runBtn.disabled = !ready;
     insertBtn.disabled = !ready;
+    endpointsBtn.disabled = !ready;
     silenceBtn.disabled = !ready;
     if (ready) schedulePreview();
     else setPreview('');
@@ -195,9 +200,11 @@
     if (running) {
       runBtn.disabled = true;
       insertBtn.disabled = true;
+      endpointsBtn.disabled = true;
       silenceBtn.disabled = true;
       runBtn.textContent = 'Running...';
       insertBtn.textContent = 'Running...';
+      endpointsBtn.textContent = 'Running...';
       silenceBtn.textContent = 'Running...';
       stopBtn.style.display = 'block';
       stopBtn.disabled = false;
@@ -205,9 +212,11 @@
     } else {
       runBtn.disabled = !isReady;
       insertBtn.disabled = !isReady;
+      endpointsBtn.disabled = !isReady;
       silenceBtn.disabled = !isReady;
       runBtn.textContent = 'Run Cleanup';
       insertBtn.textContent = 'Insert Ad Slots';
+      endpointsBtn.textContent = 'Add Ad at Start & End';
       silenceBtn.textContent = 'Insert Into Silence';
       stopBtn.style.display = 'none';
     }
@@ -385,8 +394,31 @@
       minGapSec: Math.max(parseInt(silenceMinGapInput.value, 10) || 300, 1),
       tolerancePct: Math.min(Math.max(parseInt(silenceSensitivityInput.value, 10) || 25, 1), 100),
       minSilenceMs: silenceMinMs(),
+      addEndpoints: silenceAddEndpointsCb ? silenceAddEndpointsCb.checked : true,
       dryRun: false,
       speedMs: parseInt(silenceSpeedInput.value, 10) || 50,
+    };
+
+    chrome.tabs.sendMessage(activeTabId, { type: 'insert', config: config }, function (response) {
+      if (chrome.runtime.lastError || !response || !response.started) {
+        var errMsg = response ? response.reason : (chrome.runtime.lastError ? chrome.runtime.lastError.message : 'no response');
+        appendLog('Failed to start: ' + errMsg, 'error');
+        setButtonsRunning(false);
+      }
+    });
+  });
+
+  // ─── Start & End Button ─────────────────────────────────────
+
+  endpointsBtn.addEventListener('click', function () {
+    if (!isReady || !activeTabId) return;
+
+    setButtonsRunning(true);
+    clearLog();
+
+    var config = {
+      mode: 'endpoints',
+      speedMs: parseInt(insertSpeedInput.value, 10) || 50,
     };
 
     chrome.tabs.sendMessage(activeTabId, { type: 'insert', config: config }, function (response) {
