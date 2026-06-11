@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Mid-Roll Manager",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Bulk insert and clean up mid-roll ad slots in the Studio monetization editor.",
   "permissions": ["activeTab", "scripting"],
   "host_permissions": ["https://studio.youtube.com/*"],

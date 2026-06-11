@@ -537,22 +537,45 @@
     });
   }
 
-  // Greedily place one ad at the midpoint of a silent segment, then require at
-  // least minGapSec before the next, walking segments in time order. This caps
-  // the count predictably and lands every ad inside a detected silence.
+  // Fill each silent segment with ads at a minGapSec cadence, walking segments in
+  // time order. A short gap yields one ad near its start; a long quiet stretch
+  // yields several, spaced minGapSec apart. The first candidate in each segment is
+  // clamped so cross-segment spacing also honors minGapSec, so two nearby gaps
+  // never produce ads closer together than that. Anchoring at the segment start
+  // (rather than its midpoint) means the earliest silence lands an ad near its
+  // beginning (~00:00) instead of the middle of a long opening quiet region.
   function pickSilencesWithSpacing(segments, minGapSec) {
-    var mids = segments
-      .map(function (s) { return (s.startSec + s.endSec) / 2; })
-      .sort(function (a, b) { return a - b; });
+    var sorted = segments.slice().sort(function (a, b) { return a.startSec - b.startSec; });
     var picked = [];
     var last = -Infinity;
-    for (var i = 0; i < mids.length; i++) {
-      if (mids[i] - last >= minGapSec) {
-        picked.push(Math.round(mids[i]));
-        last = mids[i];
+    for (var i = 0; i < sorted.length; i++) {
+      var seg = sorted[i];
+      // First candidate inside this segment that also honors the global gap from
+      // the previous placed ad. For the very first segment this is its start.
+      var t = last === -Infinity ? seg.startSec : Math.max(seg.startSec, last + minGapSec);
+      // Step through the segment; t < endSec avoids landing on the resume boundary.
+      while (t < seg.endSec) {
+        var r = Math.round(t);
+        if (r !== last) picked.push(r); // guard against rounding duplicates
+        last = t;
+        t += minGapSec;
       }
     }
     return picked;
+  }
+
+  // Append a start (00:00) and a moment-before-end slot, skipping times that
+  // already have an ad or are already queued. Shared by the standalone endpoints
+  // button and the Silence-tab "add start & end" checkbox.
+  function addEndpoints(timesToInsert, existingTimes, endSec) {
+    var endMargin = 1; // a moment before the end
+    var candidates = [0, Math.round(endSec - endMargin)];
+    for (var e = 0; e < candidates.length; e++) {
+      var c = candidates[e];
+      if (c >= 0 && c < endSec && !existingTimes.has(c) && timesToInsert.indexOf(c) === -1) {
+        timesToInsert.push(c);
+      }
+    }
   }
 
   // Non-destructive count of what an action would do with the given settings,
@@ -580,11 +603,12 @@
       });
       if (!analysis.success) return { ok: false, info: analysis.info };
       var picked = pickSilencesWithSpacing(analysis.segments, config.minGapSec);
-      var sc = 0;
+      var times = [];
       for (var i = 0; i < picked.length; i++) {
-        if (picked[i] < endSec && !existing.has(picked[i])) sc++;
+        if (picked[i] < endSec && !existing.has(picked[i])) times.push(picked[i]);
       }
-      return { ok: true, action: 'place', count: sc };
+      if (config.addEndpoints) addEndpoints(times, existing, endSec);
+      return { ok: true, action: 'place', count: times.length };
     }
 
     // insert
@@ -599,10 +623,14 @@
 
   async function runInsert(config) {
     var silenceMode = config.mode === 'silence';
-    log('=== Starting ' + (silenceMode ? 'silence insert' : 'insert') + ' (v' + VERSION + ') ===');
+    var endpointsMode = config.mode === 'endpoints';
+    log('=== Starting ' + (silenceMode ? 'silence insert' : endpointsMode ? 'start/end insert' : 'insert') + ' (v' + VERSION + ') ===');
     if (silenceMode) {
       log('Config: place in silence, min gap=' + config.minGapSec + 's, sensitivity=' +
-        config.tolerancePct + '%, minSilence=' + config.minSilenceMs + 'ms');
+        config.tolerancePct + '%, minSilence=' + config.minSilenceMs + 'ms' +
+        (config.addEndpoints ? ', + start & end' : ''));
+    } else if (endpointsMode) {
+      log('Config: add ad at start & end');
     } else {
       log('Config: every ' + config.intervalSec + 's, starting at ' + config.startSec + 's, dryRun=' + config.dryRun);
     }
@@ -661,6 +689,10 @@
         for (var si = 0; si < picked.length; si++) {
           if (picked[si] < endSec && !existingTimes.has(picked[si])) timesToInsert.push(picked[si]);
         }
+        if (config.addEndpoints) addEndpoints(timesToInsert, existingTimes, endSec);
+        timesToInsert.sort(function (a, b) { return a - b; });
+      } else if (endpointsMode) {
+        addEndpoints(timesToInsert, existingTimes, endSec);
       } else {
         for (var t = config.startSec; t < endSec; t += config.intervalSec) {
           var rounded = Math.round(t);
