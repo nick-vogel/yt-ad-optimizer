@@ -40,6 +40,14 @@
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
 
+  // Firefox isolates content-script objects from MAIN-world page scripts (Xray vision):
+  // a raw CustomEvent detail created here throws "Permission denied to access property X"
+  // when page-bridge.js reads it. cloneInto() copies the payload into the page scope so
+  // the bridge can read it. Chrome has no such global and no membrane, so pass through.
+  function toPageDetail(detail) {
+    return (typeof cloneInto === 'function') ? cloneInto(detail, window) : detail;
+  }
+
   function parseFramestamp(str) {
     if (!str) return NaN;
     var parts = str.trim().split(':').map(Number);
@@ -489,7 +497,7 @@
       document.addEventListener('ytadopt-result', onResult);
 
       document.dispatchEvent(new CustomEvent('ytadopt-seek', {
-        detail: { ms: Math.round(sec * 1000) }
+        detail: toPageDetail({ ms: Math.round(sec * 1000) })
       }));
 
       setTimeout(function () {
@@ -524,10 +532,10 @@
       document.addEventListener('ytadopt-result', onResult);
 
       document.dispatchEvent(new CustomEvent('ytadopt-analyzeAudio', {
-        detail: {
+        detail: toPageDetail({
           tolerancePct: opts.tolerancePct,
           minSilenceMs: opts.minSilenceMs,
-        }
+        })
       }));
 
       setTimeout(function () {
