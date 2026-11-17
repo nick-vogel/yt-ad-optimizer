@@ -28,6 +28,10 @@ Chrome extension for bulk-inserting and cleaning up mid-roll ad slots in the Stu
 - **Dry run** — preview what would be deleted
 - Click **Run Cleanup** to remove redundant slots
 
+### Saved Settings
+
+The popup remembers every value you change. The next time you open it, it shows your last settings instead of the defaults.
+
 ### Speed Control
 
 Both modes have a configurable speed (ms) setting. Default is 50ms per operation. Increase if your browser lags or placements are missed.
@@ -53,6 +57,8 @@ This extension requests minimal permissions:
 | Permission | Why |
 |---|---|
 | `activeTab` | Interact with the current tab when you click the extension icon |
+| `scripting` | Re-inject the content script if the Studio tab was open before the extension loaded |
+| `storage` | Remember your popup settings between uses (synced by your browser if browser sync is on) |
 | `host_permissions: studio.youtube.com` | Content script must run on the Studio monetization editor |
 
 No data is collected or transmitted. See [PRIVACY.md](PRIVACY.md) for details.

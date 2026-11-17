@@ -1,15 +1,16 @@
 # Privacy Policy — Mid-Roll Manager
 
-**Last updated:** 2026-05-23
+**Last updated:** 2026-11-16
 
 ## Data Collection
 
-Mid-Roll Manager does **not** collect, store, transmit, or share any user data. Specifically:
+Mid-Roll Manager does **not** collect, transmit, or share any user data. Specifically:
 
 - **No personal information** is collected (name, email, account details, etc.)
 - **No browsing history** is tracked or recorded
 - **No analytics or telemetry** data is sent to any server
 - **No cookies** are set by this extension
+- **Only your popup settings are stored.** The extension saves the numbers and checkboxes you set in its popup (intervals, start time, speed, silence options) so they are still there the next time you open it. These settings are kept in your browser's extension storage. If you turn on your browser's own sync, the browser copies them to your other signed-in browsers. The extension never sends them anywhere itself.
 - **No network requests** are made by this extension — it operates entirely within the browser tab
 
 ## How It Works
@@ -19,6 +20,7 @@ The extension reads and manipulates DOM elements on the Studio monetization edit
 ## Permissions Used
 
 - **activeTab**: Allows the extension to interact with the currently active tab when you click the extension icon.
+- **storage**: Saves your popup settings in your browser so you do not have to set them again each time.
 - **host_permissions (studio.youtube.com)**: Required for the content script to run on the Studio monetization editor page.
 
 These are the minimum permissions necessary for the extension to function. No broader access is requested.

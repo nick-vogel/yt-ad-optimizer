@@ -160,6 +160,92 @@
   if (cleanupBadOnlyCb) cleanupBadOnlyCb.addEventListener('change', syncCleanupControls);
   syncCleanupControls();
 
+  // ─── Saved settings ─────────────────────────────────────────
+  // Every control value is kept in storage.sync under one key, so the popup
+  // reopens with the user's last values instead of the HTML defaults. When the
+  // browser's own sync is off, storage.sync behaves like storage.local.
+
+  var SETTINGS_KEY = 'settings';
+  var SAVE_DEBOUNCE_MS = 300; // storage.sync allows 120 writes per minute
+  var SAVED_CONTROL_IDS = [
+    'insert-interval', 'insert-start', 'insert-speed',
+    'silence-min-gap', 'silence-sensitivity', 'silence-min-duration',
+    'silence-speed', 'silence-add-endpoints',
+    'cleanup-bad-only', 'interval', 'cleanup-speed',
+  ];
+
+  function syncStorage() {
+    return (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) || null;
+  }
+
+  function readControls() {
+    var values = {};
+    SAVED_CONTROL_IDS.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      values[id] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+    return values;
+  }
+
+  function applyControls(values) {
+    if (!values || typeof values !== 'object') return;
+    SAVED_CONTROL_IDS.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el || !Object.prototype.hasOwnProperty.call(values, id)) return;
+      var v = values[id];
+      if (el.type === 'checkbox') {
+        if (typeof v === 'boolean') el.checked = v;
+      } else if (typeof v === 'string' && v !== '') {
+        el.value = v;
+      }
+    });
+    updateSpeedReadouts();
+    syncCleanupControls();
+  }
+
+  var saveTimer = null;
+
+  function saveNow() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    var store = syncStorage();
+    if (!store) return;
+    var payload = {};
+    payload[SETTINGS_KEY] = readControls();
+    store.set(payload, function () { void chrome.runtime.lastError; });
+  }
+
+  function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNow, SAVE_DEBOUNCE_MS);
+  }
+
+  // A popup can close before the debounce fires, so flush a pending save.
+  function flushPendingSave() {
+    if (saveTimer !== null) saveNow();
+  }
+
+  function loadSettings(done) {
+    var store = syncStorage();
+    if (!store) return done();
+    store.get(SETTINGS_KEY, function (items) {
+      if (!chrome.runtime.lastError && items) applyControls(items[SETTINGS_KEY]);
+      done();
+    });
+  }
+
+  SAVED_CONTROL_IDS.forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', scheduleSave);
+    el.addEventListener('change', scheduleSave);
+  });
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') flushPendingSave();
+  });
+  window.addEventListener('pagehide', flushPendingSave);
+
   // ─── Status & Logging ───────────────────────────────────────
 
   function setStatus(ready, text) {
@@ -443,8 +529,10 @@
   });
 
   document.getElementById('done-btn').addEventListener('click', function () {
+    flushPendingSave();
     window.close();
   });
 
-  pingContentScript();
+  // Restore saved values first, so the first live estimate uses them.
+  loadSettings(pingContentScript);
 })();
